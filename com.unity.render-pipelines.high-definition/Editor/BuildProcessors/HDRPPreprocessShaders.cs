@@ -197,6 +197,7 @@ namespace UnityEditor.Rendering.HighDefinition
     }
 
 #if UNITY_2020_2_OR_NEWER
+    /*
     class HDRPPreprocessComputeShaders : IPreprocessComputeShaders
     {
         struct ExportComputeShaderStrip : System.IDisposable
@@ -388,8 +389,10 @@ namespace UnityEditor.Rendering.HighDefinition
             }
         }
     }
+    */
 #endif // #if UNITY_2020_2_OR_NEWER
 
+    /*
     class HDRPreprocessShaders : IPreprocessShaders
     {
         // Track list of materials asking for specific preprocessor step
@@ -409,26 +412,21 @@ namespace UnityEditor.Rendering.HighDefinition
             shaderProcessorsList = HDShaderUtils.GetBaseShaderPreprocessorList();
         }
 
-        void LogShaderVariants(Shader shader, ShaderSnippetData snippetData, uint prevVariantsCount, uint currVariantsCount)
+        void LogShaderVariants(Shader shader, ShaderSnippetData snippetData, ShaderVariantLogLevel logLevel, uint prevVariantsCount, uint currVariantsCount)
         {
-            if (HDRenderPipelineGlobalSettings.instance.shaderVariantLogLevel == ShaderVariantLogLevel.Disabled)
-                return;
+            if (logLevel == ShaderVariantLogLevel.AllShaders ||
+                (logLevel == ShaderVariantLogLevel.OnlyHDRPShaders && HDShaderUtils.IsHDRPShader(shader)))
+            {
+                float percentageCurrent = ((float)currVariantsCount / prevVariantsCount) * 100.0f;
+                float percentageTotal = ((float)m_TotalVariantsOutputCount / m_TotalVariantsInputCount) * 100.0f;
 
-            m_TotalVariantsInputCount += prevVariantsCount;
-            m_TotalVariantsOutputCount += currVariantsCount;
-
-            if (HDRenderPipelineGlobalSettings.instance.shaderVariantLogLevel == ShaderVariantLogLevel.OnlySRPShaders && !HDShaderUtils.IsHDRPShader(shader))
-                return;
-
-            float percentageCurrent = ((float)currVariantsCount / prevVariantsCount) * 100.0f;
-            float percentageTotal = ((float)m_TotalVariantsOutputCount / m_TotalVariantsInputCount) * 100.0f;
-
-            string result = string.Format("STRIPPING: {0} ({1} pass) ({2}) -" +
-                " Remaining shader variants = {3}/{4} = {5}% - Total = {6}/{7} = {8}%",
-                shader.name, snippetData.passName, snippetData.shaderType.ToString(), currVariantsCount,
-                prevVariantsCount, percentageCurrent, m_TotalVariantsOutputCount, m_TotalVariantsInputCount,
-                percentageTotal);
-            Debug.Log(result);
+                string result = string.Format("STRIPPING: {0} ({1} pass) ({2}) -" +
+                    " Remaining shader variants = {3}/{4} = {5}% - Total = {6}/{7} = {8}%",
+                    shader.name, snippetData.passName, snippetData.shaderType.ToString(), currVariantsCount,
+                    prevVariantsCount, percentageCurrent, m_TotalVariantsOutputCount, m_TotalVariantsInputCount,
+                    percentageTotal);
+                Debug.Log(result);
+            }
         }
 
         struct ExportShaderStrip : System.IDisposable
@@ -441,6 +439,7 @@ namespace UnityEditor.Rendering.HighDefinition
             HDRPreprocessShaders m_PreProcess;
 
             public ExportShaderStrip(
+                bool exportLog,
                 string outFile,
                 Shader shader,
                 ShaderSnippetData snippet,
@@ -448,7 +447,7 @@ namespace UnityEditor.Rendering.HighDefinition
                 HDRPreprocessShaders preProcess
             )
             {
-                m_ExportLog = HDRenderPipelineGlobalSettings.instance.exportShaderVariants;
+                m_ExportLog = exportLog;
                 m_OutFile = outFile;
                 m_Shader = shader;
                 m_Snippet = snippet;
@@ -492,10 +491,13 @@ namespace UnityEditor.Rendering.HighDefinition
             if (HDRenderPipelineGlobalSettings.Ensure(canCreateNewAsset: false) == null)
                 return;
 
+            var exportLog = ShaderBuildPreprocessor.hdrpAssets.Count > 0
+                && (HDRenderPipelineGlobalSettings.instance.shaderVariantLogLevel != ShaderVariantLogLevel.Disabled);
+
             Stopwatch shaderStripingWatch = new Stopwatch();
             shaderStripingWatch.Start();
 
-            using (new ExportShaderStrip("Temp/shader-strip.json", shader, snippet, inputData, this))
+            using (new ExportShaderStrip(exportLog, "Temp/shader-strip.json", shader, snippet, inputData, this))
             {
                 // TODO: Grab correct configuration/quality asset.
                 var hdPipelineAssets = ShaderBuildPreprocessor.hdrpAssets;
@@ -551,14 +553,22 @@ namespace UnityEditor.Rendering.HighDefinition
                     for (int i = inputData.Count - 1; i >= inputShaderVariantCount; --i)
                         inputData.RemoveAt(i);
 
-                LogShaderVariants(shader, snippet, preStrippingCount, (uint)inputData.Count);
+                if (HDRenderPipelineGlobalSettings.instance.shaderVariantLogLevel != ShaderVariantLogLevel.Disabled)
+                {
+                    foreach (var hdAsset in hdPipelineAssets)
+                    {
+                        m_TotalVariantsInputCount += preStrippingCount;
+                        m_TotalVariantsOutputCount += (uint)inputData.Count;
+                        LogShaderVariants(shader, snippet, HDRenderPipelineGlobalSettings.instance.shaderVariantLogLevel, preStrippingCount, (uint)inputData.Count);
+                    }
+                }
             }
 
             shaderStripingWatch.Stop();
             shaderPreprocessed?.Invoke(shader, snippet, inputData.Count, shaderStripingWatch.Elapsed.TotalMilliseconds);
         }
     }
-
+    */
     // Build preprocessor to find all potentially used HDRP assets.
     class ShaderBuildPreprocessor : IPreprocessBuildWithReport
     {
