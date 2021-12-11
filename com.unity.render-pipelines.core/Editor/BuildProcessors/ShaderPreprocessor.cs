@@ -22,8 +22,11 @@ namespace UnityEditor.Rendering
 
         public ShaderPreprocessor()
         {
-            logStrippedVariants = RenderPipelineManager.currentPipeline.defaultSettings.logStrippedVariants;
-            exportStrippedVariants = RenderPipelineManager.currentPipeline.defaultSettings.exportStrippedVariants;
+            if (RenderPipelineManager.currentPipeline.defaultSettings is IShaderVariantSettings shaderVariantSettings)
+            {
+                logStrippedVariants = shaderVariantSettings.shaderVariantLogLevel != ShaderVariantLogLevel.Disabled;
+                exportStrippedVariants = shaderVariantSettings.exportShaderVariants;
+            }
 
             foreach (var stripper in TypeCache.GetTypesDerivedFrom<IVariantStripper<TShader, TShaderVariant>>())
             {

@@ -9,7 +9,7 @@ using Assert = NUnit.Framework.Assert;
 namespace UnityEngine.Rendering.Utils.Tests
 {
     public class PreprocessShadersTests
-    {
+    {/*
         class PreprocessShaders : UnityEditor.Rendering.PreprocessShaders
         {
             public override bool exportLog => false;
@@ -95,5 +95,6 @@ namespace UnityEngine.Rendering.Utils.Tests
             Assert.IsFalse(exceptionRaised);
             return compilerDataList?.Count ?? 0;
         }
+        */
     }
 }

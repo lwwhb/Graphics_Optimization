@@ -49,7 +49,7 @@ namespace UnityEditor.Rendering.HighDefinition
             {
                 case ShaderVariantLogLevel.Disabled:
                     return false;
-                case ShaderVariantLogLevel.OnlyHDRPShaders:
+                case ShaderVariantLogLevel.OnlySRPShaders:
                     return HDShaderUtils.IsHDRPShader(shader);
                 case ShaderVariantLogLevel.AllShaders:
                     return true;
