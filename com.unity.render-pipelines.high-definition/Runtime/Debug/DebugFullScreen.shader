@@ -400,7 +400,7 @@ Shader "Hidden/HDRP/DebugFullScreen"
                     uint2 samplePosition = (uint2)(sampleUV * _DebugViewportSize.xy);
                     uint stencilSample = GetStencilValue(LOAD_TEXTURE2D_X(_VisOITCount, samplePosition));
                     float3 stencilColor = stencilSample == 0u ? (sampleUV.yyy * sampleUV.yyy * float3(0,0,0.08)) : ((float)stencilSample / 255.0).xxx;
-                    float4 debugHistogram = DebugDrawOITHistogram(sampleUV, (float2)_ScreenSize.xy); 
+                    float4 debugHistogram = DebugDrawOITHistogram(sampleUV, (float2)_ScreenSize.xy);
                     return float4(lerp(stencilColor.rgb, debugHistogram.rgb, debugHistogram.a), 1.0);
                     #else
                         return float4(1,0,0,0);

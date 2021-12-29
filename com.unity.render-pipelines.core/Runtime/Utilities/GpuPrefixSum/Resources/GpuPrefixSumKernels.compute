@@ -1,0 +1,70 @@
+#pragma kernel MainPrefixSumOnGroup
+#pragma kernel MainPrefixSumNextInput
+#pragma kernel MainPrefixSumResolveParent
+
+#include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/GpuPrefixSum/GpuPrefixSum.cs.hlsl"
+
+//#pragma enable_d3d11_debug_symbols
+
+ByteAddressBuffer _InputBuffer;
+RWByteAddressBuffer _OutputBuffer;
+
+float4 _PrefixSumIntArgs;
+
+#define inputCount   asint(_PrefixSumIntArgs.x)
+#define inputOffset  asint(_PrefixSumIntArgs.y)
+#define outputOffset asint(_PrefixSumIntArgs.z)
+#define parentOffset asint(_PrefixSumIntArgs.w)
+
+groupshared uint gs_prefixCache[GROUP_SIZE];
+
+[numthreads(GROUP_SIZE, 1, 1)]
+void MainPrefixSumOnGroup(int3 dispatchThreadID : SV_DispatchThreadID, int groupIndex : SV_GroupIndex)
+{
+    int threadID = dispatchThreadID.x;
+    uint inputVal = threadID >= inputCount ? 0u : _InputBuffer.Load((threadID + inputOffset) << 2);
+    gs_prefixCache[groupIndex] = inputVal;
+
+    GroupMemoryBarrierWithGroupSync();
+
+    //Hillis Steele Scan
+    for (int i = 1; i < GROUP_SIZE; i <<= 1)
+    {
+        uint val = groupIndex >= i ? gs_prefixCache[groupIndex - i] : 0u;
+        GroupMemoryBarrierWithGroupSync();
+
+        gs_prefixCache[groupIndex] += val;
+
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    uint outputVal = gs_prefixCache[groupIndex];
+
+#if EXCLUSIVE_PREFIX
+    outputVal -= inputVal;
+#endif
+
+    _OutputBuffer.Store((threadID + outputOffset) << 2, outputVal);
+}
+
+[numthreads(GROUP_SIZE, 1, 1)]
+void MainPrefixSumNextInput(int3 dispatchThreadID : SV_DispatchThreadID, int3 groupID : SV_GroupID)
+{
+    _OutputBuffer.Store(dispatchThreadID.x << 2, _InputBuffer.Load((inputOffset + dispatchThreadID.x * GROUP_SIZE + GROUP_SIZE - 1) << 2));
+}
+
+groupshared uint g_parentSum;
+
+[numthreads(GROUP_SIZE, 1, 1)]
+void MainPrefixSumResolveParent(int3 dispatchThreadID : SV_DispatchThreadID, int groupIndex : SV_GroupIndex, int3 groupID : SV_GroupID)
+{
+    //no need to do barriers / etc since groupID will trigger a scalar load. We hope!!
+    uint parentSum = groupID.x == 0 ? 0 : _OutputBuffer.Load((parentOffset + groupID.x - 1) << 2);
+    int index = outputOffset + dispatchThreadID.x;
+#if EXCLUSIVE_PREFIX
+    uint val = _OutputBuffer.Load(index << 2) - _InputBuffer.Load(index << 2);
+    _OutputBuffer.Store(index << 2, val + parentSum);
+#else
+    _OutputBuffer.Store(index << 2, _OutputBuffer.Load(index << 2) + parentSum);
+#endif
+}

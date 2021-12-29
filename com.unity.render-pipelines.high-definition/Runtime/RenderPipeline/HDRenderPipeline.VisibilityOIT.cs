@@ -120,7 +120,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 passData.screenSize = screenSize;
                 passData.tileSize = 128;
                 passData.ditherTexture = defaultResources.textures.blueNoise128RTex;
-                passData.stencilBuffer = builder.ReadTexture(stencilBuffer);                
+                passData.stencilBuffer = builder.ReadTexture(stencilBuffer);
                 passData.histogramBuffer = builder.WriteComputeBuffer(renderGraph.CreateComputeBuffer(new ComputeBufferDesc(passData.tileSize * passData.tileSize, sizeof(uint), ComputeBufferType.Raw) { name = "OITHistogram" }));
                 histogramBuffer = passData.histogramBuffer;
 
