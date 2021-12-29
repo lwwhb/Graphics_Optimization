@@ -318,6 +318,7 @@ namespace UnityEngine.Rendering.HighDefinition
                         hdCamera,
                         postProcessDest,
                         vBufferInfo,
+                        prepassOutput.vbufferOIT,
                         prepassOutput.resolvedDepthBuffer,
                         prepassOutput.depthPyramidTexture,
                         colorPickerTexture,

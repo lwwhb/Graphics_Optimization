@@ -16,6 +16,8 @@ namespace UnityEngine.Rendering.HighDefinition
         public static readonly string s_ForwardOnlyStr = "ForwardOnly";
         /// <summary>VBuffer pass name.</summary>
         public static readonly string s_VBufferStr = "VBuffer";
+        /// <summary>VBuffer pass name.</summary>
+        public static readonly string s_VBufferOITCountStr = "VBufferOITCount";
         /// <summary>GBuffer pass name.</summary>
         public static readonly string s_GBufferStr = "GBuffer";
         /// <summary>VBufferLighting pass name.</summary>
@@ -77,6 +79,8 @@ namespace UnityEngine.Rendering.HighDefinition
         public static readonly ShaderTagId s_ForwardOnlyName = new ShaderTagId(s_ForwardOnlyStr);
         /// <summary>VBuffer shader tag id.</summary>
         public static readonly ShaderTagId s_VBufferName = new ShaderTagId(s_VBufferStr);
+        /// <summary>VBuffer shader tag id.</summary>
+        public static readonly ShaderTagId s_VBufferOITCountName = new ShaderTagId(s_VBufferOITCountStr);
         /// <summary>GBuffer shader tag id.</summary>
         public static readonly ShaderTagId s_GBufferName = new ShaderTagId(s_GBufferStr);
         /// <summary>VBufferLighting shader tag id.</summary>
@@ -1087,6 +1091,10 @@ namespace UnityEngine.Rendering.HighDefinition
         public static readonly int _VisBufferMaterialTiles = Shader.PropertyToID("_VisBufferMaterialTiles");
         public static readonly int _VisBufferBucketTiles = Shader.PropertyToID("_VisBufferBucketTiles");
         public static readonly int _VisBufferDepthTexture = Shader.PropertyToID("_VisBufferDepthTexture");
+        public static readonly int _VisOITCount = Shader.PropertyToID("_VisOITCount");
+        public static readonly int _OITDitherTexture = Shader.PropertyToID("_OITDitherTexture");
+        public static readonly int _VisOITHistogramOutput = Shader.PropertyToID("_VisOITHistogramOutput");
+        public static readonly int _VisOITHistogramBuffer = Shader.PropertyToID("_VisOITHistogramBuffer");
 
         //Visibility classification
         public static readonly int _VisBufferFeatureTileOutput = Shader.PropertyToID("_VisBufferFeatureTileOutput");

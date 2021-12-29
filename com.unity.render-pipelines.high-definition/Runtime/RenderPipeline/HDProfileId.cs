@@ -21,6 +21,8 @@ namespace UnityEngine.Rendering.HighDefinition
         DeferredDepthPrepass,
         TransparentDepthPrepass,
         VBuffer,
+        VBufferOITCount,
+        OITHistogram,
         VBufferMaterialDepth,
         VBufferLightTileClassification,
         VBufferMaterialTileClassification,

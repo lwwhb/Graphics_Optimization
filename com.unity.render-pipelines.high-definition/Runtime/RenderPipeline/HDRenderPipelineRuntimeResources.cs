@@ -127,10 +127,14 @@ namespace UnityEngine.Rendering.HighDefinition
 
             [Reload("Runtime/Material/Visibility/Visibility.shader")]
             public Shader visibilityPS;
+            [Reload("Runtime/Material/Visibility/VisibilityOIT.shader")]
+            public Shader visibilityOITPS;
             [Reload("Runtime/Material/Visibility/CreateMaterialDepth.shader")]
             public Shader createMaterialDepthPS;
             [Reload("Runtime/Material/Visibility/VBufferClassification.compute")]
             public ComputeShader vbufferTileClassificationCS;
+            [Reload("Runtime/Material/Visibility/OITTileHistogram.compute")]
+            public ComputeShader oitTileHistogramCS;
 
             // Sky
             [Reload("Runtime/Sky/BlitCubemap.shader")]
@@ -430,6 +434,8 @@ namespace UnityEngine.Rendering.HighDefinition
             public Texture2D[] blueNoise16LTex;
             [Reload("Runtime/RenderPipelineResources/Texture/BlueNoise16/RGB/LDR_RGB1_{0}.png", 0, 32)]
             public Texture2D[] blueNoise16RGBTex;
+            [Reload("Runtime/RenderPipelineResources/Texture/BlueNoise128/RBlueNoise128.exr")]
+            public Texture2D blueNoise128RTex;
             [Reload("Runtime/RenderPipelineResources/Texture/CoherentNoise/OwenScrambledNoise4.png")]
             public Texture2D owenScrambledRGBATex;
             [Reload("Runtime/RenderPipelineResources/Texture/CoherentNoise/OwenScrambledNoise256.png")]
