@@ -46,6 +46,7 @@ void MainCalculateLevelOffsetsCommon(uint currentCount)
 {
     //Assume that the input max elements is already aligned.
     uint alignedSupportMaxCount = AlignUpGroup(currentCount);
+    uint prevSize = 0;
     uint totalSize = 0;
     uint levelCounts = 0;
 
@@ -60,19 +61,22 @@ void MainCalculateLevelOffsetsCommon(uint currentCount)
         offsets.count = levelCounts == 0 ? currentCount : alignedSupportMaxCount;
         offsets.inputOffset = totalSize;
         offsets.outputOffset = totalSize;
-        offsets.parentOffset = 0;
+        offsets.parentOffset = prevSize;
 
         uint groupCount = DivUpGroup(alignedSupportMaxCount);
 
         _OutputLevelsOffsetsBuffer[levelCounts] = offsets;
-        _OutputDispatchLevelArgsBuffer[levelCounts] = uint3(1,1,1);
+        _OutputDispatchLevelArgsBuffer[levelCounts] = uint3(groupCount,1,1);
+
+        prevSize = totalSize;
 
         totalSize += alignedSupportMaxCount;
         ++levelCounts;
 
-        alignedSupportMaxCount = AlignUpGroup(groupCount);
         if (alignedSupportMaxCount <= GROUP_SIZE)
             canReduce = false;
+
+        alignedSupportMaxCount = AlignUpGroup(groupCount);
     }
 
     //zero out all the rest of the dispatch levels
@@ -109,7 +113,7 @@ void MainPrefixSumOnGroup(int3 dispatchThreadID : SV_DispatchThreadID, int group
     GroupMemoryBarrierWithGroupSync();
 
     int threadID = dispatchThreadID.x;
-    uint inputVal = (uint)threadID >= gs_CurrentLevelOffsets.count ? 0u : _InputBuffer.Load((threadID + gs_CurrentLevelOffsets.inputOffset) << 2);
+    uint inputVal = (uint)threadID >= gs_CurrentLevelOffsets.count ? 0u : _InputBuffer.Load(threadID << 2);
     gs_prefixCache[groupThreadIndex] = inputVal;
 
     GroupMemoryBarrierWithGroupSync();
@@ -135,23 +139,35 @@ void MainPrefixSumOnGroup(int3 dispatchThreadID : SV_DispatchThreadID, int group
 }
 
 [numthreads(GROUP_SIZE, 1, 1)]
-void MainPrefixSumNextInput(int3 dispatchThreadID : SV_DispatchThreadID, int3 groupID : SV_GroupID)
+void MainPrefixSumNextInput(int3 dispatchThreadID : SV_DispatchThreadID, int groupThreadIndex : SV_GroupIndex)
 {
-    _OutputBuffer.Store(dispatchThreadID.x << 2, _InputBuffer.Load((_InputOffset + dispatchThreadID.x * GROUP_SIZE + GROUP_SIZE - 1) << 2));
+    if (groupThreadIndex == 0)
+        gs_CurrentLevelOffsets = _LevelsOffsetsBuffer[_CurrentLevel];
+
+    GroupMemoryBarrierWithGroupSync();
+
+    _OutputBuffer.Store(dispatchThreadID.x << 2, _InputBuffer.Load((gs_CurrentLevelOffsets.outputOffset + dispatchThreadID.x * GROUP_SIZE + GROUP_SIZE - 1) << 2));
 }
 
-groupshared uint g_parentSum;
+groupshared uint gs_ParentSum;
 
 [numthreads(GROUP_SIZE, 1, 1)]
-void MainPrefixSumResolveParent(int3 dispatchThreadID : SV_DispatchThreadID, int groupIndex : SV_GroupIndex, int3 groupID : SV_GroupID)
+void MainPrefixSumResolveParent(int3 dispatchThreadID : SV_DispatchThreadID, int groupThreadIndex : SV_GroupIndex, int3 groupID : SV_GroupID)
 {
+    if (groupThreadIndex == 0)
+    {
+        gs_CurrentLevelOffsets = _LevelsOffsetsBuffer[_CurrentLevel];
+        gs_ParentSum = groupID.x == 0 ? 0 : _OutputBuffer.Load((gs_CurrentLevelOffsets.outputOffset + groupID.x - 1) << 2);
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
     //no need to do barriers / etc since groupID will trigger a scalar load. We hope!!
-    uint parentSum = groupID.x == 0 ? 0 : _OutputBuffer.Load((_ParentOffset + groupID.x - 1) << 2);
-    int index = _OutputOffset + dispatchThreadID.x;
+    int index = gs_CurrentLevelOffsets.parentOffset + dispatchThreadID.x;
 #if EXCLUSIVE_PREFIX
     uint val = _OutputBuffer.Load(index << 2) - _InputBuffer.Load(index << 2);
-    _OutputBuffer.Store(index << 2, val + parentSum);
+    _OutputBuffer.Store(index << 2, val + gs_ParentSum);
 #else
-    _OutputBuffer.Store(index << 2, _OutputBuffer.Load(index << 2) + parentSum);
+    _OutputBuffer.Store(index << 2, _OutputBuffer.Load(index << 2) + gs_ParentSum);
 #endif
 }

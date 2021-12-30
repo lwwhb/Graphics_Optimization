@@ -125,7 +125,8 @@ namespace UnityEngine.Rendering.Tests
             var inputBuffer = CreateBuffer(inputArray);
 
             CommandBuffer cmdBuffer = new CommandBuffer();
-            var resources = GpuPrefixSumSupportResources.Create(inputArray.Length);
+            //allocate slack memory
+            var resources = GpuPrefixSumSupportResources.Create(Math.Max(inputArray.Length, 2 * GpuPrefixSumDefs.GroupSize));
 
             //Clear the output
             ClearOutput(resources);
@@ -156,7 +157,8 @@ namespace UnityEngine.Rendering.Tests
             var countBuffer = CreateBuffer(new uint[] { (uint)bufferCount });
 
             CommandBuffer cmdBuffer = new CommandBuffer();
-            var resources = GpuPrefixSumSupportResources.Create(inputArray.Length);
+            //allocate slack memory
+            var resources = GpuPrefixSumSupportResources.Create(Math.Max(inputArray.Length, 2 * GpuPrefixSumDefs.GroupSize));
 
             //Clear the output
             ClearOutput(resources);
@@ -172,6 +174,8 @@ namespace UnityEngine.Rendering.Tests
 
             var referenceOutput = CpuPrefixSum(inputArray);
             var results = DownloadData(arguments.supportResources.output);
+            var buff1 = DownloadData(arguments.supportResources.prefixBuffer1);
+            var buff2 = DownloadData(arguments.supportResources.totalLevelCountBuffer);
 
             TestCompareArrays(referenceOutput, results, 0, bufferCount);
 
@@ -191,6 +195,18 @@ namespace UnityEngine.Rendering.Tests
         public void TestPrefixSumIndirectOnSingleGroup()
         {
             TestPrefixSumIndirectCommon(GpuPrefixSumDefs.GroupSize);
+        }
+
+        [Test]
+        public void TestPrefixSumIndirectOnSubGroup()
+        {
+            TestPrefixSumIndirectCommon(GpuPrefixSumDefs.GroupSize - 10);
+        }
+
+        [Test]
+        public void TestPrefixSumIndirectOnBigArray()
+        {
+            TestPrefixSumIndirectCommon(913);
         }
 
         [Test]
