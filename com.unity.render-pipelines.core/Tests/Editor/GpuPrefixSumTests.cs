@@ -1,3 +1,4 @@
+using System;
 using NUnit.Framework;
 using Unity.Collections;
 using UnityEngine.Rendering;
@@ -70,9 +71,9 @@ namespace UnityEngine.Rendering.Tests
 
         uint[] CreateInputArray0(int count)
         {
-            uint[] output = new uint[count];
+            uint[] output = new uint[Math.Max(count, 1)];
             for (int i = 0; i < output.Length; ++i)
-                output[i] = (uint)(i * 2);
+                output[i] = (uint)(i * 2) + 1;
             return output;
         }
 
@@ -98,7 +99,6 @@ namespace UnityEngine.Rendering.Tests
                 endIdx = offset + length;
                 Assert.GreaterOrEqual(a.Length, endIdx);
                 Assert.GreaterOrEqual(b.Length, endIdx);
-                return false;
             }
 
             for (int i = offset; i < endIdx; ++i)
@@ -113,14 +113,22 @@ namespace UnityEngine.Rendering.Tests
             return true;
         }
 
-        [Test]
-        public void TestPrefixSumOnSingleGroup()
+        void ClearOutput(GpuPrefixSumSupportResources resources)
         {
-            uint[] inputArray = CreateInputArray0(GpuPrefixSumDefs.GroupSize);
+            uint[] zeroArray = new uint[resources.maxBufferCount];
+            resources.output.SetData(zeroArray);
+        }
+
+        public void TestPrefixSumDirectCommon(int bufferCount)
+        {
+            uint[] inputArray = CreateInputArray0(bufferCount);
             var inputBuffer = CreateBuffer(inputArray);
 
             CommandBuffer cmdBuffer = new CommandBuffer();
             var resources = GpuPrefixSumSupportResources.Create(inputArray.Length);
+
+            //Clear the output
+            ClearOutput(resources);
 
             var arguments = new GpuPrefixSumDirectArgs();
             arguments.input = inputBuffer;
@@ -133,11 +141,68 @@ namespace UnityEngine.Rendering.Tests
             var referenceOutput = CpuPrefixSum(inputArray);
             var results = DownloadData(arguments.supportResources.output);
 
-            TestCompareArrays(referenceOutput, results);
+            TestCompareArrays(referenceOutput, results, 0, bufferCount);
 
             cmdBuffer.Release();
             inputBuffer.Dispose();
             resources.Dispose();
+        }
+
+        public void TestPrefixSumIndirectCommon(int bufferCount)
+        {
+            uint[] inputArray = CreateInputArray0(bufferCount);
+            var inputBuffer = CreateBuffer(inputArray);
+
+            var countBuffer = CreateBuffer(new uint[] { (uint)bufferCount });
+
+            CommandBuffer cmdBuffer = new CommandBuffer();
+            var resources = GpuPrefixSumSupportResources.Create(inputArray.Length);
+
+            //Clear the output
+            ClearOutput(resources);
+
+            var arguments = new GpuPrefixSumIndirectDirectArgs();
+            arguments.input = inputBuffer;
+            arguments.inputCountBuffer = countBuffer;
+            arguments.inputCountBufferByteOffset = 0;
+            arguments.supportResources = resources;
+            m_PrefixSumSystem.DispatchIndirect(cmdBuffer, arguments);
+
+            Graphics.ExecuteCommandBuffer(cmdBuffer);
+
+            var referenceOutput = CpuPrefixSum(inputArray);
+            var results = DownloadData(arguments.supportResources.output);
+
+            TestCompareArrays(referenceOutput, results, 0, bufferCount);
+
+            cmdBuffer.Release();
+            inputBuffer.Dispose();
+            countBuffer.Dispose();
+            resources.Dispose();
+        }
+
+        [Test]
+        public void TestPrefixSumOnSingleGroup()
+        {
+            TestPrefixSumDirectCommon(GpuPrefixSumDefs.GroupSize);
+        }
+
+        [Test]
+        public void TestPrefixSumIndirectOnSingleGroup()
+        {
+            TestPrefixSumIndirectCommon(GpuPrefixSumDefs.GroupSize);
+        }
+
+        [Test]
+        public void TestPrefixSumIndirectOnZero()
+        {
+            TestPrefixSumIndirectCommon(0);
+        }
+
+        [Test]
+        public void TestPrefixSumIndirectOnOne()
+        {
+            TestPrefixSumIndirectCommon(1);
         }
     }
 }

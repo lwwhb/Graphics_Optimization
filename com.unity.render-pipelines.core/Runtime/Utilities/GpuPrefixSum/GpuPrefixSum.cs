@@ -51,6 +51,7 @@ namespace UnityEngine.Rendering
 
         public void Resize(int newMaxElementCount)
         {
+            newMaxElementCount = Math.Max(newMaxElementCount, 1); //at bare minimum support a single group.
             if (alignedElementCount >= newMaxElementCount)
                 return;
 
@@ -60,7 +61,7 @@ namespace UnityEngine.Rendering
             prefixBuffer1 = new ComputeBuffer(totalSize, 4, ComputeBufferType.Raw);
             totalLevelCountBuffer = new ComputeBuffer(1, 4, ComputeBufferType.Raw);
             levelOffsetBuffer = new ComputeBuffer(levelCounts, System.Runtime.InteropServices.Marshal.SizeOf<GpuPrefixSumLevelOffsets>(), ComputeBufferType.Structured);
-            indirectDispatchArgsBuffer = new ComputeBuffer(levelCounts * 3, 4, ComputeBufferType.Raw);
+            indirectDispatchArgsBuffer = new ComputeBuffer(levelCounts, 4 * 3, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments);
             alignedElementCount = GpuPrefixSumDefs.AlignUpGroup(newMaxElementCount);
             maxBufferCount = totalSize;
             maxLevelCount = levelCounts;
@@ -124,12 +125,21 @@ namespace UnityEngine.Rendering
         public GpuPrefixSumSupportResources supportResources;
     }
 
+    public struct GpuPrefixSumIndirectDirectArgs
+    {
+        public int inputCountBufferByteOffset;
+        public ComputeBuffer inputCountBuffer;
+        public ComputeBuffer input;
+        public GpuPrefixSumSupportResources supportResources;
+    }
+
     public struct GpuPrefixSum
     {
         private static class KernelIDs
         {
             public static readonly int _InputBuffer = Shader.PropertyToID("_InputBuffer");
             public static readonly int _OutputBuffer = Shader.PropertyToID("_OutputBuffer");
+            public static readonly int _InputCountBuffer = Shader.PropertyToID("_InputCountBuffer");
             public static readonly int _TotalLevelsBuffer = Shader.PropertyToID("_TotalLevelsBuffer");
             public static readonly int _OutputTotalLevelsBuffer = Shader.PropertyToID("_OutputTotalLevelsBuffer");
             public static readonly int _OutputDispatchLevelArgsBuffer = Shader.PropertyToID("_OutputDispatchLevelArgsBuffer");
@@ -168,13 +178,15 @@ namespace UnityEngine.Rendering
             }
         }
 
-        private void ExecuteCommonIndirect(CommandBuffer cmdBuffer, ComputeBuffer inputBuffer, int inputCount, in GpuPrefixSumSupportResources supportResources)
+        private void ExecuteCommonIndirect(CommandBuffer cmdBuffer, ComputeBuffer inputBuffer, in GpuPrefixSumSupportResources supportResources)
         {
-            var packedArgs = PackPrefixSumArgs(inputCount, 0, 0, 0);
+            int currentLevel = 0;
+            var packedArgs = PackPrefixSumArgs(0, 0, 0, currentLevel);
             cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs1, packedArgs);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumOnGroup, KernelIDs._InputBuffer, inputBuffer);
+            cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumOnGroup, KernelIDs._LevelsOffsetsBuffer, supportResources.levelOffsetBuffer);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumOnGroup, KernelIDs._OutputBuffer, supportResources.output);
-            cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainPrefixSumOnGroup, GpuPrefixSumDefs.DivUpGroup(inputCount), 1, 1);
+            cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainPrefixSumOnGroup, supportResources.indirectDispatchArgsBuffer, 0);
         }
 
         public void DispatchDirect(CommandBuffer cmdBuffer, in GpuPrefixSumDirectArgs arguments)
@@ -189,14 +201,34 @@ namespace UnityEngine.Rendering
                 throw new Exception("Input count exceeds maximum count of support resources. Ensure to create support resources with enough space.");
 
             //Generate level offsets first, from const value.
-            var packedArgs = PackPrefixSumArgs(arguments.inputCount, 0, 0, 0);
+            var packedArgs = PackPrefixSumArgs(arguments.inputCount, arguments.supportResources.maxLevelCount, 0, 0);
             cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs1, packedArgs);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromConst, KernelIDs._OutputLevelsOffsetsBuffer, arguments.supportResources.levelOffsetBuffer);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromConst, KernelIDs._OutputDispatchLevelArgsBuffer, arguments.supportResources.indirectDispatchArgsBuffer);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromConst, KernelIDs._OutputTotalLevelsBuffer, arguments.supportResources.totalLevelCountBuffer);
             cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromConst, 1, 1, 1);
 
-            ExecuteCommonIndirect(cmdBuffer, arguments.input, arguments.inputCount, arguments.supportResources);
+            ExecuteCommonIndirect(cmdBuffer, arguments.input, arguments.supportResources);
+        }
+
+        public void DispatchIndirect(CommandBuffer cmdBuffer, in GpuPrefixSumIndirectDirectArgs arguments)
+        {
+            if (arguments.supportResources.prefixBuffer0 == null || arguments.supportResources.prefixBuffer1 == null)
+                throw new Exception("Support resources are not valid.");
+
+            if (arguments.input == null || arguments.inputCountBuffer == null)
+                throw new Exception("Input source buffer and inputCountBuffer cannot be null.");
+
+            //Generate level offsets first, from const value.
+            var packedArgs = PackPrefixSumArgs(0, arguments.supportResources.maxLevelCount, arguments.inputCountBufferByteOffset, 0);
+            cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs1, packedArgs);
+            cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, KernelIDs._InputCountBuffer, arguments.inputCountBuffer);
+            cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, KernelIDs._OutputLevelsOffsetsBuffer, arguments.supportResources.levelOffsetBuffer);
+            cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, KernelIDs._OutputDispatchLevelArgsBuffer, arguments.supportResources.indirectDispatchArgsBuffer);
+            cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, KernelIDs._OutputTotalLevelsBuffer, arguments.supportResources.totalLevelCountBuffer);
+            cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, 1, 1, 1);
+
+            ExecuteCommonIndirect(cmdBuffer, arguments.input, arguments.supportResources);
         }
 
         public void Initialize()

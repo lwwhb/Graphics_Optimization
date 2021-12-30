@@ -11,10 +11,12 @@
 ByteAddressBuffer   _InputBuffer;
 RWByteAddressBuffer _OutputBuffer;
 
+ByteAddressBuffer   _InputCountBuffer;
+
 ByteAddressBuffer _TotalLevelsBuffer;
 RWByteAddressBuffer _OutputTotalLevelsBuffer;
 
-RWByteAddressBuffer _OutputDispatchLevelArgsBuffer;
+RWStructuredBuffer<uint3> _OutputDispatchLevelArgsBuffer;
 
 StructuredBuffer<GpuPrefixSumLevelOffsets> _LevelsOffsetsBuffer;
 RWStructuredBuffer<GpuPrefixSumLevelOffsets> _OutputLevelsOffsetsBuffer;
@@ -23,7 +25,10 @@ float4 _PrefixSumIntArgs0;
 float4 _PrefixSumIntArgs1;
 
 #define _InputCount   asint(_PrefixSumIntArgs1.x)
-#define _InputOffset  asint(_PrefixSumIntArgs1.y)
+#define _MaxLevels  asint(_PrefixSumIntArgs1.y)
+#define _InputOffset  asint(_PrefixSumIntArgs1.z)
+#define _CurrentLevel  asint(_PrefixSumIntArgs1.w)
+
 #define _OutputOffset asint(_PrefixSumIntArgs1.z)
 #define _ParentOffset asint(_PrefixSumIntArgs1.w)
 
@@ -52,7 +57,7 @@ void MainCalculateLevelOffsetsCommon(uint currentCount)
     while (canReduce)
     {
         GpuPrefixSumLevelOffsets offsets;
-        offsets.count = alignedSupportMaxCount;
+        offsets.count = levelCounts == 0 ? currentCount : alignedSupportMaxCount;
         offsets.inputOffset = totalSize;
         offsets.outputOffset = totalSize;
         offsets.parentOffset = 0;
@@ -60,7 +65,7 @@ void MainCalculateLevelOffsetsCommon(uint currentCount)
         uint groupCount = DivUpGroup(alignedSupportMaxCount);
 
         _OutputLevelsOffsetsBuffer[levelCounts] = offsets;
-        _OutputDispatchLevelArgsBuffer.Store3((levelCounts * 3) << 2, uint3(groupCount,1,1));
+        _OutputDispatchLevelArgsBuffer[levelCounts] = uint3(1,1,1);
 
         totalSize += alignedSupportMaxCount;
         ++levelCounts;
@@ -68,6 +73,13 @@ void MainCalculateLevelOffsetsCommon(uint currentCount)
         alignedSupportMaxCount = AlignUpGroup(groupCount);
         if (alignedSupportMaxCount <= GROUP_SIZE)
             canReduce = false;
+    }
+
+    //zero out all the rest of the dispatch levels
+    [loop]
+    for (int i = levelCounts; i < _MaxLevels; ++i)
+    {
+        _OutputDispatchLevelArgsBuffer[i] = uint3(0,0,0);
     }
 
     _OutputTotalLevelsBuffer.Store(0, levelCounts);
@@ -82,38 +94,44 @@ void MainCalculateLevelDispatchArgsFromConst()
 [numthreads(1,1,1)]
 void MainCalculateLevelDispatchArgsFromBuffer()
 {
-    MainCalculateLevelOffsetsCommon(_InputBuffer.Load(_InputOffset << 2));
+    MainCalculateLevelOffsetsCommon(_InputCountBuffer.Load(_InputOffset << 2));
 }
 
+groupshared GpuPrefixSumLevelOffsets gs_CurrentLevelOffsets;
 groupshared uint gs_prefixCache[GROUP_SIZE];
 
 [numthreads(GROUP_SIZE, 1, 1)]
-void MainPrefixSumOnGroup(int3 dispatchThreadID : SV_DispatchThreadID, int groupIndex : SV_GroupIndex)
+void MainPrefixSumOnGroup(int3 dispatchThreadID : SV_DispatchThreadID, int groupThreadIndex : SV_GroupIndex)
 {
+    if (groupThreadIndex == 0)
+        gs_CurrentLevelOffsets = _LevelsOffsetsBuffer[_CurrentLevel];
+
+    GroupMemoryBarrierWithGroupSync();
+
     int threadID = dispatchThreadID.x;
-    uint inputVal = threadID >= _InputCount ? 0u : _InputBuffer.Load((threadID + _InputOffset) << 2);
-    gs_prefixCache[groupIndex] = inputVal;
+    uint inputVal = (uint)threadID >= gs_CurrentLevelOffsets.count ? 0u : _InputBuffer.Load((threadID + gs_CurrentLevelOffsets.inputOffset) << 2);
+    gs_prefixCache[groupThreadIndex] = inputVal;
 
     GroupMemoryBarrierWithGroupSync();
 
     //Hillis Steele Scan
     for (int i = 1; i < GROUP_SIZE; i <<= 1)
     {
-        uint val = groupIndex >= i ? gs_prefixCache[groupIndex - i] : 0u;
+        uint val = groupThreadIndex >= i ? gs_prefixCache[groupThreadIndex - i] : 0u;
         GroupMemoryBarrierWithGroupSync();
 
-        gs_prefixCache[groupIndex] += val;
+        gs_prefixCache[groupThreadIndex] += val;
 
         GroupMemoryBarrierWithGroupSync();
     }
 
-    uint outputVal = gs_prefixCache[groupIndex];
+    uint outputVal = gs_prefixCache[groupThreadIndex];
 
 #if EXCLUSIVE_PREFIX
     outputVal -= inputVal;
 #endif
 
-    _OutputBuffer.Store((threadID + _OutputOffset) << 2, outputVal);
+    _OutputBuffer.Store((threadID + gs_CurrentLevelOffsets.outputOffset) << 2, outputVal);
 }
 
 [numthreads(GROUP_SIZE, 1, 1)]
