@@ -14,8 +14,7 @@
 struct GpuPrefixSumLevelOffsets
 {
     uint count;
-    uint inputOffset;
-    uint outputOffset;
+    uint offset;
     uint parentOffset;
 };
 

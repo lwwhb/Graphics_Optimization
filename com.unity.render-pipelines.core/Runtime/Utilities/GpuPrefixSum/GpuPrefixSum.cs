@@ -25,8 +25,7 @@ namespace UnityEngine.Rendering
     internal struct GpuPrefixSumLevelOffsets
     {
         public uint count;
-        public uint inputOffset;
-        public uint outputOffset;
+        public uint offset;
         public uint parentOffset;
     }
 
@@ -61,7 +60,7 @@ namespace UnityEngine.Rendering
             prefixBuffer1 = new ComputeBuffer(newMaxElementCount, 4, ComputeBufferType.Raw);
             totalLevelCountBuffer = new ComputeBuffer(1, 4, ComputeBufferType.Raw);
             levelOffsetBuffer = new ComputeBuffer(levelCounts, System.Runtime.InteropServices.Marshal.SizeOf<GpuPrefixSumLevelOffsets>(), ComputeBufferType.Structured);
-            indirectDispatchArgsBuffer = new ComputeBuffer(levelCounts, 4 * 3, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments);
+            indirectDispatchArgsBuffer = new ComputeBuffer(levelCounts, 4 * 6, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments);//3 arguments for upp dispatch, 3 arguments for lower dispatch
             alignedElementCount = GpuPrefixSumDefs.AlignUpGroup(newMaxElementCount);
             maxBufferCount = totalSize;
             maxLevelCount = levelCounts;
@@ -120,6 +119,7 @@ namespace UnityEngine.Rendering
 
     public struct GpuPrefixSumDirectArgs
     {
+        public bool exclusive;
         public int inputCount;
         public ComputeBuffer input;
         public GpuPrefixSumSupportResources supportResources;
@@ -127,6 +127,7 @@ namespace UnityEngine.Rendering
 
     public struct GpuPrefixSumIndirectDirectArgs
     {
+        public bool exclusive;
         public int inputCountBufferByteOffset;
         public ComputeBuffer inputCountBuffer;
         public ComputeBuffer input;
@@ -145,16 +146,17 @@ namespace UnityEngine.Rendering
             public static readonly int _OutputDispatchLevelArgsBuffer = Shader.PropertyToID("_OutputDispatchLevelArgsBuffer");
             public static readonly int _LevelsOffsetsBuffer = Shader.PropertyToID("_LevelsOffsetsBuffer");
             public static readonly int _OutputLevelsOffsetsBuffer = Shader.PropertyToID("_OutputLevelsOffsetsBuffer");
-            public static readonly int _PrefixSumIntArgs0 = Shader.PropertyToID("_PrefixSumIntArgs0");
-            public static readonly int _PrefixSumIntArgs1 = Shader.PropertyToID("_PrefixSumIntArgs1");
+            public static readonly int _PrefixSumIntArgs = Shader.PropertyToID("_PrefixSumIntArgs");
         }
 
         ComputeShader m_PrefixSumCS;
         private int m_KernelMainCalculateLevelDispatchArgsFromConst;
         private int m_KernelMainCalculateLevelDispatchArgsFromBuffer;
         private int m_KernelMainPrefixSumOnGroup;
+        private int m_KernelMainPrefixSumOnGroupExclusive;
         private int m_KernelMainPrefixSumNextInput;
         private int m_KernelMainPrefixSumResolveParent;
+        private int m_KernelMainPrefixSumResolveParentExclusive;
 
         private void LoadShaders()
         {
@@ -162,8 +164,10 @@ namespace UnityEngine.Rendering
             m_KernelMainCalculateLevelDispatchArgsFromConst = m_PrefixSumCS.FindKernel("MainCalculateLevelDispatchArgsFromConst");
             m_KernelMainCalculateLevelDispatchArgsFromBuffer = m_PrefixSumCS.FindKernel("MainCalculateLevelDispatchArgsFromBuffer");
             m_KernelMainPrefixSumOnGroup = m_PrefixSumCS.FindKernel("MainPrefixSumOnGroup");
+            m_KernelMainPrefixSumOnGroupExclusive = m_PrefixSumCS.FindKernel("MainPrefixSumOnGroupExclusive");
             m_KernelMainPrefixSumNextInput = m_PrefixSumCS.FindKernel("MainPrefixSumNextInput");
             m_KernelMainPrefixSumResolveParent = m_PrefixSumCS.FindKernel("MainPrefixSumResolveParent");
+            m_KernelMainPrefixSumResolveParentExclusive = m_PrefixSumCS.FindKernel("MainPrefixSumResolveParentExclusive");
         }
 
         Vector4 PackPrefixSumArgs(int a, int b, int c, int d)
@@ -178,18 +182,22 @@ namespace UnityEngine.Rendering
             }
         }
 
-        private void ExecuteCommonIndirect(CommandBuffer cmdBuffer, ComputeBuffer inputBuffer, in GpuPrefixSumSupportResources supportResources)
+        private void ExecuteCommonIndirect(CommandBuffer cmdBuffer, ComputeBuffer inputBuffer, in GpuPrefixSumSupportResources supportResources, bool isExclusive)
         {
+            int sumOnGroupKernel = isExclusive ? m_KernelMainPrefixSumOnGroupExclusive : m_KernelMainPrefixSumOnGroup;
+            int sumResolveParentKernel = isExclusive ? m_KernelMainPrefixSumResolveParentExclusive : m_KernelMainPrefixSumResolveParent;
+
             //hierarchy up
             for (int levelId = 0; levelId < supportResources.maxLevelCount; ++levelId)
             {
                 var packedArgs = PackPrefixSumArgs(0, 0, 0, levelId);
-                cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs1, packedArgs);
+                cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs, packedArgs);
 
-                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumOnGroup, KernelIDs._InputBuffer, levelId == 0 ? inputBuffer : supportResources.prefixBuffer1);
-                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumOnGroup, KernelIDs._LevelsOffsetsBuffer, supportResources.levelOffsetBuffer);
-                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumOnGroup, KernelIDs._OutputBuffer, supportResources.prefixBuffer0);
-                cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainPrefixSumOnGroup, supportResources.indirectDispatchArgsBuffer, (uint)(levelId * 3 * 4));
+                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, sumOnGroupKernel, KernelIDs._InputBuffer, levelId == 0 ? inputBuffer : supportResources.prefixBuffer1);
+                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, sumOnGroupKernel, KernelIDs._TotalLevelsBuffer, supportResources.totalLevelCountBuffer);
+                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, sumOnGroupKernel, KernelIDs._LevelsOffsetsBuffer, supportResources.levelOffsetBuffer);
+                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, sumOnGroupKernel, KernelIDs._OutputBuffer, supportResources.prefixBuffer0);
+                cmdBuffer.DispatchCompute(m_PrefixSumCS, sumOnGroupKernel, supportResources.indirectDispatchArgsBuffer, (uint)(levelId * 6 * 4));
 
                 if (levelId == supportResources.maxLevelCount - 1)
                     continue;
@@ -197,17 +205,18 @@ namespace UnityEngine.Rendering
                 cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumNextInput, KernelIDs._InputBuffer, supportResources.prefixBuffer0);
                 cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumNextInput, KernelIDs._LevelsOffsetsBuffer, supportResources.levelOffsetBuffer);
                 cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumNextInput, KernelIDs._OutputBuffer, supportResources.prefixBuffer1);
-                cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainPrefixSumNextInput, supportResources.indirectDispatchArgsBuffer, (uint)((levelId + 1) * 3 * 4));
+                cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainPrefixSumNextInput, supportResources.indirectDispatchArgsBuffer, (uint)((levelId + 1) * 6 * 4));
             }
 
             //down the hierarchy
             for (int levelId = supportResources.maxLevelCount - 1; levelId >= 1; --levelId)
             {
                 var packedArgs = PackPrefixSumArgs(0, 0, 0, levelId);
-                cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs1, packedArgs);
-                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumResolveParent, KernelIDs._OutputBuffer, supportResources.prefixBuffer0);
-                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainPrefixSumResolveParent, KernelIDs._LevelsOffsetsBuffer, supportResources.levelOffsetBuffer);
-                cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainPrefixSumResolveParent, supportResources.indirectDispatchArgsBuffer, (uint)((levelId - 1) * 3 * 4));
+                cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs, packedArgs);
+                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, sumResolveParentKernel, KernelIDs._InputBuffer, inputBuffer);
+                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, sumResolveParentKernel, KernelIDs._OutputBuffer, supportResources.prefixBuffer0);
+                cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, sumResolveParentKernel, KernelIDs._LevelsOffsetsBuffer, supportResources.levelOffsetBuffer);
+                cmdBuffer.DispatchCompute(m_PrefixSumCS, sumResolveParentKernel, supportResources.indirectDispatchArgsBuffer, (uint)(((levelId - 1) * 6 + 3) * 4));
             }
         }
 
@@ -224,12 +233,13 @@ namespace UnityEngine.Rendering
 
             //Generate level offsets first, from const value.
             var packedArgs = PackPrefixSumArgs(arguments.inputCount, arguments.supportResources.maxLevelCount, 0, 0);
-            cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs1, packedArgs);
+            cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs, packedArgs);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromConst, KernelIDs._OutputLevelsOffsetsBuffer, arguments.supportResources.levelOffsetBuffer);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromConst, KernelIDs._OutputDispatchLevelArgsBuffer, arguments.supportResources.indirectDispatchArgsBuffer);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromConst, KernelIDs._OutputTotalLevelsBuffer, arguments.supportResources.totalLevelCountBuffer);
             cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromConst, 1, 1, 1);
-            ExecuteCommonIndirect(cmdBuffer, arguments.input, arguments.supportResources);
+
+            ExecuteCommonIndirect(cmdBuffer, arguments.input, arguments.supportResources, arguments.exclusive);
         }
 
         public void DispatchIndirect(CommandBuffer cmdBuffer, in GpuPrefixSumIndirectDirectArgs arguments)
@@ -242,14 +252,14 @@ namespace UnityEngine.Rendering
 
             //Generate level offsets first, from const value.
             var packedArgs = PackPrefixSumArgs(0, arguments.supportResources.maxLevelCount, arguments.inputCountBufferByteOffset, 0);
-            cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs1, packedArgs);
+            cmdBuffer.SetComputeVectorParam(m_PrefixSumCS, KernelIDs._PrefixSumIntArgs, packedArgs);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, KernelIDs._InputCountBuffer, arguments.inputCountBuffer);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, KernelIDs._OutputLevelsOffsetsBuffer, arguments.supportResources.levelOffsetBuffer);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, KernelIDs._OutputDispatchLevelArgsBuffer, arguments.supportResources.indirectDispatchArgsBuffer);
             cmdBuffer.SetComputeBufferParam(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, KernelIDs._OutputTotalLevelsBuffer, arguments.supportResources.totalLevelCountBuffer);
             cmdBuffer.DispatchCompute(m_PrefixSumCS, m_KernelMainCalculateLevelDispatchArgsFromBuffer, 1, 1, 1);
 
-            ExecuteCommonIndirect(cmdBuffer, arguments.input, arguments.supportResources);
+            ExecuteCommonIndirect(cmdBuffer, arguments.input, arguments.supportResources, arguments.exclusive);
         }
 
         public void Initialize()

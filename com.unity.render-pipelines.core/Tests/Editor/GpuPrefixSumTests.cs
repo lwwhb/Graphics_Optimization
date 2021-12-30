@@ -119,7 +119,7 @@ namespace UnityEngine.Rendering.Tests
             resources.output.SetData(zeroArray);
         }
 
-        public void TestPrefixSumDirectCommon(int bufferCount)
+        public void TestPrefixSumDirectCommon(int bufferCount, bool isExclusive = false)
         {
             uint[] inputArray = CreateInputArray0(bufferCount);
             var inputBuffer = CreateBuffer(inputArray);
@@ -132,6 +132,7 @@ namespace UnityEngine.Rendering.Tests
             ClearOutput(resources);
 
             var arguments = new GpuPrefixSumDirectArgs();
+            arguments.exclusive = isExclusive;
             arguments.input = inputBuffer;
             arguments.inputCount = inputArray.Length;
             arguments.supportResources = resources;
@@ -139,7 +140,7 @@ namespace UnityEngine.Rendering.Tests
 
             Graphics.ExecuteCommandBuffer(cmdBuffer);
 
-            var referenceOutput = CpuPrefixSum(inputArray);
+            var referenceOutput = CpuPrefixSum(inputArray, isExclusive);
             var results = DownloadData(arguments.supportResources.output);
 
             TestCompareArrays(referenceOutput, results, 0, bufferCount);
@@ -149,7 +150,7 @@ namespace UnityEngine.Rendering.Tests
             resources.Dispose();
         }
 
-        public void TestPrefixSumIndirectCommon(int bufferCount)
+        public void TestPrefixSumIndirectCommon(int bufferCount, bool isExclusive = false)
         {
             uint[] inputArray = CreateInputArray0(bufferCount);
             var inputBuffer = CreateBuffer(inputArray);
@@ -164,6 +165,7 @@ namespace UnityEngine.Rendering.Tests
             ClearOutput(resources);
 
             var arguments = new GpuPrefixSumIndirectDirectArgs();
+            arguments.exclusive = isExclusive;
             arguments.input = inputBuffer;
             arguments.inputCountBuffer = countBuffer;
             arguments.inputCountBufferByteOffset = 0;
@@ -172,7 +174,7 @@ namespace UnityEngine.Rendering.Tests
 
             Graphics.ExecuteCommandBuffer(cmdBuffer);
 
-            var referenceOutput = CpuPrefixSum(inputArray);
+            var referenceOutput = CpuPrefixSum(inputArray, isExclusive);
             var results = DownloadData(arguments.supportResources.output);
             var buff1 = DownloadData(arguments.supportResources.prefixBuffer1);
             var buff2 = DownloadData(arguments.supportResources.totalLevelCountBuffer);
@@ -192,9 +194,22 @@ namespace UnityEngine.Rendering.Tests
         }
 
         [Test]
+        public void TestPrefixSumOnSingleGroupExclusive()
+        {
+            TestPrefixSumDirectCommon(GpuPrefixSumDefs.GroupSize, isExclusive: true);
+        }
+
+
+        [Test]
         public void TestPrefixSumIndirectOnSingleGroup()
         {
             TestPrefixSumIndirectCommon(GpuPrefixSumDefs.GroupSize);
+        }
+
+        [Test]
+        public void TestPrefixSumIndirectOnSingleGroupExclusive()
+        {
+            TestPrefixSumIndirectCommon(GpuPrefixSumDefs.GroupSize, isExclusive: true);
         }
 
         [Test]
@@ -204,9 +219,21 @@ namespace UnityEngine.Rendering.Tests
         }
 
         [Test]
+        public void TestPrefixSumIndirectOnSubGroupExclusive()
+        {
+            TestPrefixSumIndirectCommon(GpuPrefixSumDefs.GroupSize - 10, isExclusive: true);
+        }
+
+        [Test]
         public void TestPrefixSumIndirectOnBigArray()
         {
             TestPrefixSumIndirectCommon(913);
+        }
+
+        [Test]
+        public void TestPrefixSumIndirectOnBigArrayExclusive()
+        {
+            TestPrefixSumIndirectCommon(913, isExclusive: true);
         }
 
         [Test]
@@ -216,9 +243,21 @@ namespace UnityEngine.Rendering.Tests
         }
 
         [Test]
+        public void TestPrefixSumIndirectOnZeroExclusive()
+        {
+            TestPrefixSumIndirectCommon(0, isExclusive: true);
+        }
+
+        [Test]
         public void TestPrefixSumIndirectOnOne()
         {
             TestPrefixSumIndirectCommon(1);
+        }
+
+        [Test]
+        public void TestPrefixSumIndirectOnOneExclusive()
+        {
+            TestPrefixSumIndirectCommon(1, isExclusive: true);
         }
     }
 }
