@@ -9,5 +9,15 @@
 //
 #define GROUP_SIZE (128)
 
+// Generated from UnityEngine.Rendering.GpuPrefixSumLevelOffsets
+// PackingRules = Exact
+struct GpuPrefixSumLevelOffsets
+{
+    uint count;
+    uint inputOffset;
+    uint outputOffset;
+    uint parentOffset;
+};
+
 
 #endif

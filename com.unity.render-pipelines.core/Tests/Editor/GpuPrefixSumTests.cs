@@ -122,11 +122,11 @@ namespace UnityEngine.Rendering.Tests
             CommandBuffer cmdBuffer = new CommandBuffer();
             var resources = GpuPrefixSumSupportResources.Create(inputArray.Length);
 
-            GpuPrefixSumArgs arguments = new GpuPrefixSumArgs();
+            var arguments = new GpuPrefixSumDirectArgs();
             arguments.input = inputBuffer;
             arguments.inputCount = inputArray.Length;
             arguments.supportResources = resources;
-            m_PrefixSumSystem.Execute(cmdBuffer, arguments);
+            m_PrefixSumSystem.DispatchDirect(cmdBuffer, arguments);
 
             Graphics.ExecuteCommandBuffer(cmdBuffer);
 
