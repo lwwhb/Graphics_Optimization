@@ -5,11 +5,11 @@
 #ifndef GPUPREFIXSUM_CS_HLSL
 #define GPUPREFIXSUM_CS_HLSL
 //
-// UnityEngine.Rendering.GpuPrefixSumDefs:  static fields
+// UnityEngine.Rendering.HighDefinition.GpuPrefixSumDefs:  static fields
 //
 #define GROUP_SIZE (128)
 
-// Generated from UnityEngine.Rendering.GpuPrefixSumLevelOffsets
+// Generated from UnityEngine.Rendering.HighDefinition.GpuPrefixSumLevelOffsets
 // PackingRules = Exact
 struct GpuPrefixSumLevelOffsets
 {

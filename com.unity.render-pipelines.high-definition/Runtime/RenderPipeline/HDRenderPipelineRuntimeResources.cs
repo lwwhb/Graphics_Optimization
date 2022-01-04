@@ -390,6 +390,10 @@ namespace UnityEngine.Rendering.HighDefinition
             [Reload("Runtime/RenderPipeline/Raytracing/Shaders/Denoising/DiffuseDenoiser.compute")]
             public ComputeShader diffuseDenoiserCS;
 
+            // Prefix sum utilities
+            [Reload("Runtime/Utilities/GpuPrefixSum.compute")]
+            public ComputeShader gpuPrefixSumCS;
+
 #if UNITY_EDITOR
             // Furnace Testing (BSDF Energy Conservation)
             [Reload("Tests/Editor/Utilities/FurnaceTests.compute")]

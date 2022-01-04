@@ -6,7 +6,7 @@
 #pragma kernel MainPrefixSumResolveParent
 #pragma kernel MainPrefixSumResolveParentExclusive
 
-#include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/GpuPrefixSum/GpuPrefixSum.cs.hlsl"
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/Utilities/GpuPrefixSum.cs.hlsl"
 
 //#pragma enable_d3d11_debug_symbols
 

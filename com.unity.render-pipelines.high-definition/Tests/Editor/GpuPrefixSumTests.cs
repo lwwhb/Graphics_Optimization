@@ -1,9 +1,9 @@
 using System;
 using NUnit.Framework;
 using Unity.Collections;
-using UnityEngine.Rendering;
+using UnityEditor.Rendering.HighDefinition;
 
-namespace UnityEngine.Rendering.Tests
+namespace UnityEngine.Rendering.HighDefinition.Tests
 {
     class GpuPrefixSumTests
     {
@@ -12,7 +12,12 @@ namespace UnityEngine.Rendering.Tests
         [SetUp]
         public void OnSetup()
         {
-            m_PrefixSumSystem.Initialize();
+#if UNITY_EDITOR
+            var globalSettings = HDRenderPipelineGlobalSettings.Ensure();
+#else
+            var globalSettings = HDRenderPipelineGlobalSettings.instance;
+#endif
+            m_PrefixSumSystem.Initialize(globalSettings.renderPipelineResources);
         }
 
         [TearDown]
