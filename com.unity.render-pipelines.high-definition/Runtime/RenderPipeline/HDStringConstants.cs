@@ -1106,6 +1106,7 @@ namespace UnityEngine.Rendering.HighDefinition
         public static readonly int _OITDitherTexture = Shader.PropertyToID("_OITDitherTexture");
         public static readonly int _VisOITHistogramOutput = Shader.PropertyToID("_VisOITHistogramOutput");
         public static readonly int _VisOITHistogramBuffer = Shader.PropertyToID("_VisOITHistogramBuffer");
+        public static readonly int _VisOITPrefixedHistogramBuffer = Shader.PropertyToID("_VisOITPrefixedHistogramBuffer");
 
         //Visibility classification
         public static readonly int _VisBufferFeatureTileOutput = Shader.PropertyToID("_VisBufferFeatureTileOutput");

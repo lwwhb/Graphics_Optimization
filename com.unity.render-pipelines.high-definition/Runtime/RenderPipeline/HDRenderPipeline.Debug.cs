@@ -412,6 +412,7 @@ namespace UnityEngine.Rendering.HighDefinition
                         {
                             mpb.SetTexture(HDShaderIDs._VisOITCount, data.vBufferOIT.stencilBuffer, RenderTextureSubElement.Stencil);
                             mpb.SetBuffer(HDShaderIDs._VisOITHistogramBuffer, data.vBufferOIT.histogramBuffer);
+                            mpb.SetBuffer(HDShaderIDs._VisOITPrefixedHistogramBuffer, data.vBufferOIT.prefixedHistogramBuffer);
                         }
 
                         if (fullscreenBuffer != null)

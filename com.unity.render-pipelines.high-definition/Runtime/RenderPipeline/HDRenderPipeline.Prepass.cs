@@ -221,7 +221,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 }
 
                 RenderVBuffer(renderGraph, colorBuffer, hdCamera, cullingResults, ref result);
-                RenderVBufferOITCount(renderGraph, colorBuffer, hdCamera, cullingResults, ref result);
+                RenderVBufferOIT(renderGraph, colorBuffer, hdCamera, cullingResults, ref result);
 
                 // If we have MSAA, we need to complete the motion vector buffer before buffer resolves, hence we need to run camera mv first.
                 // This is always fine since shouldRenderMotionVectorAfterGBuffer is always false for forward.

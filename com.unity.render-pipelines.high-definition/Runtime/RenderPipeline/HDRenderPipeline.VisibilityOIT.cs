@@ -12,6 +12,7 @@ namespace UnityEngine.Rendering.HighDefinition
             public bool valid;
             public TextureHandle stencilBuffer;
             public ComputeBufferHandle histogramBuffer;
+            public ComputeBufferHandle prefixedHistogramBuffer;
             public RenderBRGBindingData BRGBindingData;
 
             public static VBufferOITOutput NewDefault()
@@ -33,6 +34,7 @@ namespace UnityEngine.Rendering.HighDefinition
                     return readVBuffer;
 
                 readVBuffer.histogramBuffer = builder.ReadComputeBuffer(histogramBuffer);
+                readVBuffer.prefixedHistogramBuffer = builder.ReadComputeBuffer(prefixedHistogramBuffer);
                 readVBuffer.BRGBindingData = BRGBindingData;
                 return readVBuffer;
             }
@@ -50,7 +52,7 @@ namespace UnityEngine.Rendering.HighDefinition
             public RenderBRGBindingData BRGBindingData;
         }
 
-        void RenderVBufferOITCount(RenderGraph renderGraph, TextureHandle colorBuffer, HDCamera hdCamera, CullingResults cull, ref PrepassOutput output)
+        void RenderVBufferOIT(RenderGraph renderGraph, TextureHandle colorBuffer, HDCamera hdCamera, CullingResults cull, ref PrepassOutput output)
         {
             output.vbufferOIT = VBufferOITOutput.NewDefault();
 
@@ -95,14 +97,19 @@ namespace UnityEngine.Rendering.HighDefinition
                     });
             }
 
-            output.vbufferOIT.histogramBuffer = ComputeOITTiledHistogram(renderGraph, new Vector2Int((int)hdCamera.screenSize.x, (int)hdCamera.screenSize.y), hdCamera.viewCount, output.vbufferOIT.stencilBuffer);
+            int histogramSize, tileSize;
+            var histogramBuffer = ComputeOITTiledHistogram(renderGraph, new Vector2Int((int)hdCamera.screenSize.x, (int)hdCamera.screenSize.y), hdCamera.viewCount, output.vbufferOIT.stencilBuffer, out histogramSize, out tileSize);
+            var prefixedHistogramBuffer = ComputeOITTiledPrefixSumHistogramBuffer(renderGraph, histogramBuffer, histogramSize);
 
+            output.vbufferOIT.histogramBuffer = histogramBuffer;
+            output.vbufferOIT.prefixedHistogramBuffer = prefixedHistogramBuffer;
             output.vbufferOIT.BRGBindingData = BRGBindingData;
         }
 
         class OITTileHistogramPassData
         {
             public int tileSize;
+            public int histogramSize;
             public Vector2Int screenSize;
             public ComputeShader cs;
             public Texture2D ditherTexture;
@@ -110,18 +117,20 @@ namespace UnityEngine.Rendering.HighDefinition
             public ComputeBufferHandle histogramBuffer;
         }
 
-        ComputeBufferHandle ComputeOITTiledHistogram(RenderGraph renderGraph, Vector2Int screenSize, int viewCount, TextureHandle stencilBuffer)
+        ComputeBufferHandle ComputeOITTiledHistogram(RenderGraph renderGraph, Vector2Int screenSize, int viewCount, TextureHandle stencilBuffer, out int histogramSize, out int tileSize)
         {
             ComputeBufferHandle histogramBuffer = ComputeBufferHandle.nullHandle;
+            tileSize = 128;
+            histogramSize = tileSize * tileSize;
             using (var builder = renderGraph.AddRenderPass<OITTileHistogramPassData>("OITTileHistogramPassData", out var passData, ProfilingSampler.Get(HDProfileId.OITHistogram)))
             {
-                builder.AllowRendererListCulling(false);
                 passData.cs = defaultResources.shaders.oitTileHistogramCS;
                 passData.screenSize = screenSize;
-                passData.tileSize = 128;
+                passData.tileSize = tileSize;
                 passData.ditherTexture = defaultResources.textures.blueNoise128RTex;
                 passData.stencilBuffer = builder.ReadTexture(stencilBuffer);
-                passData.histogramBuffer = builder.WriteComputeBuffer(renderGraph.CreateComputeBuffer(new ComputeBufferDesc(passData.tileSize * passData.tileSize, sizeof(uint), ComputeBufferType.Raw) { name = "OITHistogram" }));
+                passData.histogramSize = histogramSize;
+                passData.histogramBuffer = builder.WriteComputeBuffer(renderGraph.CreateComputeBuffer(new ComputeBufferDesc(histogramSize, sizeof(uint), ComputeBufferType.Raw) { name = "OITHistogram" }));
                 histogramBuffer = passData.histogramBuffer;
 
                 builder.SetRenderFunc(
@@ -129,7 +138,7 @@ namespace UnityEngine.Rendering.HighDefinition
                     {
                         int clearKernel = data.cs.FindKernel("MainClearHistogram");
                         context.cmd.SetComputeBufferParam(data.cs, clearKernel, HDShaderIDs._VisOITHistogramOutput, data.histogramBuffer);
-                        context.cmd.DispatchCompute(data.cs, clearKernel, HDUtils.DivRoundUp(data.tileSize * data.tileSize, 64), 1, 1);
+                        context.cmd.DispatchCompute(data.cs, clearKernel, HDUtils.DivRoundUp(passData.histogramSize, 64), 1, 1);
 
                         int histogramKernel = data.cs.FindKernel("MainCreateStencilHistogram");
                         context.cmd.SetComputeTextureParam(data.cs, histogramKernel, HDShaderIDs._OITDitherTexture, data.ditherTexture);
@@ -140,6 +149,38 @@ namespace UnityEngine.Rendering.HighDefinition
             }
 
             return histogramBuffer;
+        }
+
+        class OITHistogramPrefixSum
+        {
+            public int inputCount;
+            public ComputeBufferHandle inputBuffer;
+            public GpuPrefixSum prefixSumSystem;
+            public GpuPrefixSumRenderGraphResources resources;
+        }
+
+        ComputeBufferHandle ComputeOITTiledPrefixSumHistogramBuffer(RenderGraph renderGraph, ComputeBufferHandle histogramInput, int histogramSize)
+        {
+            ComputeBufferHandle output;
+            using (var builder = renderGraph.AddRenderPass<OITHistogramPrefixSum>("OITHistogramPrefixSum", out var passData, ProfilingSampler.Get(HDProfileId.OITHistogramPrefixSum)))
+            {
+                builder.AllowRendererListCulling(false);
+                passData.inputCount = histogramSize;
+                passData.inputBuffer = builder.ReadComputeBuffer(histogramInput);
+                passData.prefixSumSystem = m_PrefixSumSystem;
+                passData.resources = GpuPrefixSumRenderGraphResources.Create(histogramSize, renderGraph, builder);
+                output = passData.resources.output;
+
+                builder.SetRenderFunc(
+                    (OITHistogramPrefixSum data, RenderGraphContext context) =>
+                    {
+                        GpuPrefixSumSupportResources resources = GpuPrefixSumSupportResources.Load(data.resources);
+                        data.prefixSumSystem.DispatchDirect(context.cmd, new GpuPrefixSumDirectArgs()
+                        { exclusive = false, inputCount = data.inputCount, input = data.inputBuffer, supportResources = resources });
+                    });
+            }
+
+            return output;
         }
     }
 }

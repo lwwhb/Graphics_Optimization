@@ -1,4 +1,6 @@
 using System;
+using UnityEngine.Experimental.Rendering;
+using UnityEngine.Experimental.Rendering.RenderGraphModule;
 
 namespace UnityEngine.Rendering.HighDefinition
 {
@@ -16,52 +18,6 @@ namespace UnityEngine.Rendering.HighDefinition
         {
             return DivUpGroup(value) * GroupSize;
         }
-    }
-
-    [GenerateHLSL(PackingRules.Exact, false, false)]
-    internal struct GpuPrefixSumLevelOffsets
-    {
-        public uint count;
-        public uint offset;
-        public uint parentOffset;
-    }
-
-    internal struct GpuPrefixSumSupportResources
-    {
-        public int alignedElementCount;
-        public int maxBufferCount;
-        public int maxLevelCount;
-        public ComputeBuffer prefixBuffer0;
-        public ComputeBuffer prefixBuffer1;
-        public ComputeBuffer totalLevelCountBuffer;
-        public ComputeBuffer levelOffsetBuffer;
-        public ComputeBuffer indirectDispatchArgsBuffer;
-        public ComputeBuffer output => prefixBuffer0;
-
-        public static GpuPrefixSumSupportResources Create(int maxElementCount)
-        {
-            var resources = new GpuPrefixSumSupportResources() { alignedElementCount = 0 };
-            resources.Resize(maxElementCount);
-            return resources;
-        }
-
-        public void Resize(int newMaxElementCount)
-        {
-            newMaxElementCount = Math.Max(newMaxElementCount, 1); //at bare minimum support a single group.
-            if (alignedElementCount >= newMaxElementCount)
-                return;
-
-            Dispose();
-            CalculateTotalBufferSize(newMaxElementCount, out int totalSize, out int levelCounts);
-            prefixBuffer0 = new ComputeBuffer(totalSize, 4, ComputeBufferType.Raw);
-            prefixBuffer1 = new ComputeBuffer(newMaxElementCount, 4, ComputeBufferType.Raw);
-            totalLevelCountBuffer = new ComputeBuffer(1, 4, ComputeBufferType.Raw);
-            levelOffsetBuffer = new ComputeBuffer(levelCounts, System.Runtime.InteropServices.Marshal.SizeOf<GpuPrefixSumLevelOffsets>(), ComputeBufferType.Structured);
-            indirectDispatchArgsBuffer = new ComputeBuffer(levelCounts, 4 * 6, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments);//3 arguments for upp dispatch, 3 arguments for lower dispatch
-            alignedElementCount = GpuPrefixSumDefs.AlignUpGroup(newMaxElementCount);
-            maxBufferCount = totalSize;
-            maxLevelCount = levelCounts;
-        }
 
         public static void CalculateTotalBufferSize(int maxElementCount, out int totalSize, out int levelCounts)
         {
@@ -76,9 +32,114 @@ namespace UnityEngine.Rendering.HighDefinition
             }
         }
 
+    }
+
+    [GenerateHLSL(PackingRules.Exact, false, false)]
+    internal struct GpuPrefixSumLevelOffsets
+    {
+        public uint count;
+        public uint offset;
+        public uint parentOffset;
+    }
+
+    internal struct GpuPrefixSumRenderGraphResources
+    {
+        public int alignedElementCount;
+        public int maxBufferCount;
+        public int maxLevelCount;
+        public ComputeBufferHandle prefixBuffer0;
+        public ComputeBufferHandle prefixBuffer1;
+        public ComputeBufferHandle totalLevelCountBuffer;
+        public ComputeBufferHandle levelOffsetBuffer;
+        public ComputeBufferHandle indirectDispatchArgsBuffer;
+
+        public ComputeBufferHandle output => prefixBuffer0;
+
+        public static GpuPrefixSumRenderGraphResources Create(int newMaxElementCount, RenderGraph renderGraph, RenderGraphBuilder builder)
+        {
+            var resources = new GpuPrefixSumRenderGraphResources();
+            resources.Initialize(newMaxElementCount, renderGraph, builder);
+            return resources;
+        }
+
+        void Initialize(int newMaxElementCount, RenderGraph renderGraph, RenderGraphBuilder builder)
+        {
+            newMaxElementCount = Math.Max(newMaxElementCount, 1);
+            GpuPrefixSumDefs.CalculateTotalBufferSize(newMaxElementCount, out int totalSize, out int levelCounts);
+            prefixBuffer0 = builder.WriteComputeBuffer(renderGraph.CreateComputeBuffer(new ComputeBufferDesc(totalSize, 4, ComputeBufferType.Raw) { name = "prefixBuffer0" }));
+            prefixBuffer1 = builder.CreateTransientComputeBuffer(new ComputeBufferDesc(newMaxElementCount, 4, ComputeBufferType.Raw) { name = "prefixBuffer1" });
+            totalLevelCountBuffer = builder.CreateTransientComputeBuffer(new ComputeBufferDesc(1, 4, ComputeBufferType.Raw) { name = "totalLevelCountBuffer" });
+            levelOffsetBuffer = builder.CreateTransientComputeBuffer(new ComputeBufferDesc(levelCounts, System.Runtime.InteropServices.Marshal.SizeOf<GpuPrefixSumLevelOffsets>(), ComputeBufferType.Structured) { name = "levelOffsetBuffer" });
+            indirectDispatchArgsBuffer = builder.CreateTransientComputeBuffer(new ComputeBufferDesc(levelCounts, 4 * 6, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments) { name = "indirectDispatchArgsBuffer" });//3 arguments for upp dispatch, 3 arguments for lower dispatch
+            alignedElementCount = GpuPrefixSumDefs.AlignUpGroup(newMaxElementCount);
+            maxBufferCount = totalSize;
+            maxLevelCount = levelCounts;
+        }
+    }
+
+    internal struct GpuPrefixSumSupportResources
+    {
+        public bool ownsResources;
+        public int alignedElementCount;
+        public int maxBufferCount;
+        public int maxLevelCount;
+        public ComputeBuffer prefixBuffer0;
+        public ComputeBuffer prefixBuffer1;
+        public ComputeBuffer totalLevelCountBuffer;
+        public ComputeBuffer levelOffsetBuffer;
+        public ComputeBuffer indirectDispatchArgsBuffer;
+        public ComputeBuffer output => prefixBuffer0;
+
+        public static GpuPrefixSumSupportResources Create(int maxElementCount)
+        {
+            var resources = new GpuPrefixSumSupportResources() { alignedElementCount = 0, ownsResources = true };
+            resources.Resize(maxElementCount);
+            return resources;
+        }
+
+        public static GpuPrefixSumSupportResources Load(GpuPrefixSumRenderGraphResources shaderGraphResources)
+        {
+            var resources = new GpuPrefixSumSupportResources() { alignedElementCount = 0, ownsResources = false };
+            resources.LoadFromShaderGraph(shaderGraphResources);
+            return resources;
+        }
+
+        public void Resize(int newMaxElementCount)
+        {
+            if (!ownsResources)
+                throw new Exception("Cannot resize resources unless they are owned. Use GpuPrefixSumSupportResources.Create() for this.");
+
+            newMaxElementCount = Math.Max(newMaxElementCount, 1); //at bare minimum support a single group.
+            if (alignedElementCount >= newMaxElementCount)
+                return;
+
+            Dispose();
+            GpuPrefixSumDefs.CalculateTotalBufferSize(newMaxElementCount, out int totalSize, out int levelCounts);
+            prefixBuffer0 = new ComputeBuffer(totalSize, 4, ComputeBufferType.Raw);
+            prefixBuffer1 = new ComputeBuffer(newMaxElementCount, 4, ComputeBufferType.Raw);
+            totalLevelCountBuffer = new ComputeBuffer(1, 4, ComputeBufferType.Raw);
+            levelOffsetBuffer = new ComputeBuffer(levelCounts, System.Runtime.InteropServices.Marshal.SizeOf<GpuPrefixSumLevelOffsets>(), ComputeBufferType.Structured);
+            indirectDispatchArgsBuffer = new ComputeBuffer(levelCounts, 4 * 6, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments);//3 arguments for upp dispatch, 3 arguments for lower dispatch
+            alignedElementCount = GpuPrefixSumDefs.AlignUpGroup(newMaxElementCount);
+            maxBufferCount = totalSize;
+            maxLevelCount = levelCounts;
+        }
+
+        void LoadFromShaderGraph(GpuPrefixSumRenderGraphResources shaderGraphResources)
+        {
+            alignedElementCount = shaderGraphResources.alignedElementCount;
+            maxBufferCount = shaderGraphResources.maxBufferCount;
+            maxLevelCount = shaderGraphResources.maxLevelCount;
+            prefixBuffer0 = (ComputeBuffer)shaderGraphResources.prefixBuffer0;
+            prefixBuffer1 = (ComputeBuffer)shaderGraphResources.prefixBuffer1;
+            totalLevelCountBuffer = (ComputeBuffer)shaderGraphResources.totalLevelCountBuffer;
+            levelOffsetBuffer = (ComputeBuffer)shaderGraphResources.levelOffsetBuffer;
+            indirectDispatchArgsBuffer = (ComputeBuffer)shaderGraphResources.indirectDispatchArgsBuffer;
+        }
+
         public void Dispose()
         {
-            if (alignedElementCount == 0)
+            if (alignedElementCount == 0 || !ownsResources)
                 return;
 
             alignedElementCount = 0;
