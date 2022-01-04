@@ -6,6 +6,7 @@
 
 #pragma kernel MainClearHistogram
 #pragma kernel MainCreateStencilHistogram
+#pragma kernel MainFlatEnableActiveCounts
 
 #define GROUP_SIZE_Y 8
 #define GROUP_SIZE_X 8
@@ -13,6 +14,11 @@
 
 Texture2D<float> _OITDitherTexture;
 RWByteAddressBuffer _VisOITHistogramOutput;
+
+uint GetPixelIndex(int2 pixelCoordinates)
+{
+    return (uint)((DITHER_TILE_TOTAL_PIXELS) * _OITDitherTexture[(uint2)pixelCoordinates % uint2(DITHER_TILE_SIZE, DITHER_TILE_SIZE)]);
+}
 
 [numthreads(GROUP_SIZE, 1, 1)]
 void MainClearHistogram(uint3 dispatchThreadID : SV_DispatchThreadID)
@@ -31,8 +37,34 @@ void MainCreateStencilHistogram(int3 dispatchThreadID : SV_DispatchThreadID)
     if (any(dispatchThreadID.xy >= (int2)_ScreenSize.xy))
         return;
 
-    uint pixelIndex = (uint)((DITHER_TILE_TOTAL_PIXELS) * _OITDitherTexture[(uint2)dispatchThreadID.xy % uint2(DITHER_TILE_SIZE, DITHER_TILE_SIZE)]);
+    uint pixelIndex = GetPixelIndex(dispatchThreadID.xy);
     uint countVal = GetStencilValue(_VisOITCount[COORD_TEXTURE2D_X(dispatchThreadID.xy)].xy);
     int dummy;
     _VisOITHistogramOutput.InterlockedAdd(pixelIndex << 2, countVal, dummy);
+}
+
+#define _MaximumMaterialSampleCount 1024 * 128
+
+RWByteAddressBuffer _OITOutputActiveCounts;
+
+[numthreads(GROUP_SIZE_X, GROUP_SIZE_Y, 1)]
+void MainFlatEnableActiveCounts(int3 dispatchThreadID : SV_DispatchThreadID)
+{
+    UNITY_XR_ASSIGN_VIEW_INDEX(dispatchThreadID.z);
+
+    if (any(dispatchThreadID.xy >= (int2)_ScreenSize.xy))
+        return;
+
+    uint pixelIndex = GetPixelIndex(dispatchThreadID.xy);
+    uint prefixCountVal = _VisOITPrefixedHistogramBuffer.Load(pixelIndex << 2);
+
+    uint outputPixel = dispatchThreadID.y * (int)_ScreenSize.x + dispatchThreadID.x;
+
+    uint storageValue = 0u;
+
+    [branch]
+    if (prefixCountVal <= _MaximumMaterialSampleCount)
+        storageValue = GetStencilValue(_VisOITCount[COORD_TEXTURE2D_X(dispatchThreadID.xy)].xy);
+
+    _OITOutputActiveCounts.Store(outputPixel << 2, storageValue);
 }

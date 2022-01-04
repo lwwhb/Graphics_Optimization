@@ -24,6 +24,7 @@ namespace UnityEngine.Rendering.HighDefinition
         VBufferOITCount,
         OITHistogram,
         OITHistogramPrefixSum,
+        OITAllocateSampleLists,
         VBufferMaterialDepth,
         VBufferLightTileClassification,
         VBufferMaterialTileClassification,

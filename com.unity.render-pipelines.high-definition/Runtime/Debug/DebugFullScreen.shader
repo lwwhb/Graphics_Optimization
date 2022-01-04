@@ -398,8 +398,18 @@ Shader "Hidden/HDRP/DebugFullScreen"
                     #ifdef DOTS_INSTANCING_ON
                     float2 sampleUV = input.texcoord.xy / _RTHandleScale.xy;
                     uint2 samplePosition = (uint2)(sampleUV * _DebugViewportSize.xy);
+                    uint pixelOffset = samplePosition.y * _DebugViewportSize.x + samplePosition.x;
+
+
                     uint stencilSample = GetStencilValue(LOAD_TEXTURE2D_X(_VisOITCount, samplePosition));
-                    float3 stencilColor = stencilSample == 0u ? (sampleUV.yyy * sampleUV.yyy * float3(0,0,0.08)) : ((float)stencilSample / 255.0).xxx;
+
+                    float3 bgColor = (sampleUV.yyy * sampleUV.yyy * float3(0,0,0.08));
+
+                    uint activeCount = _VisOITListsCounts.Load(pixelOffset << 2);
+                    float3 activeColor = activeCount > 0 ? float3(1,1,1) : float3(1.0,0.0,0.0);
+
+                    float3 stencilColor = stencilSample == 0u ? bgColor : ((float)stencilSample / 255.0).xxx * activeColor;
+                    stencilColor = sqrt(stencilColor);
                     float4 debugHistogram = DebugDrawOITHistogram(sampleUV, (float2)_ScreenSize.xy);
                     return float4(lerp(stencilColor.rgb, debugHistogram.rgb, debugHistogram.a), 1.0);
                     #else

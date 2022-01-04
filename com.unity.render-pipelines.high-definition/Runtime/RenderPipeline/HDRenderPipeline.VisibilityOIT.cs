@@ -13,6 +13,8 @@ namespace UnityEngine.Rendering.HighDefinition
             public TextureHandle stencilBuffer;
             public ComputeBufferHandle histogramBuffer;
             public ComputeBufferHandle prefixedHistogramBuffer;
+            public ComputeBufferHandle sampleListCountBuffer;
+            public ComputeBufferHandle sampleListOffsetBuffer;
             public RenderBRGBindingData BRGBindingData;
 
             public static VBufferOITOutput NewDefault()
@@ -35,6 +37,8 @@ namespace UnityEngine.Rendering.HighDefinition
 
                 readVBuffer.histogramBuffer = builder.ReadComputeBuffer(histogramBuffer);
                 readVBuffer.prefixedHistogramBuffer = builder.ReadComputeBuffer(prefixedHistogramBuffer);
+                readVBuffer.sampleListCountBuffer = builder.ReadComputeBuffer(sampleListCountBuffer);
+                readVBuffer.sampleListOffsetBuffer = builder.ReadComputeBuffer(sampleListOffsetBuffer);
                 readVBuffer.BRGBindingData = BRGBindingData;
                 return readVBuffer;
             }
@@ -97,12 +101,19 @@ namespace UnityEngine.Rendering.HighDefinition
                     });
             }
 
+
+            var screenSize = new Vector2Int((int)hdCamera.screenSize.x, (int)hdCamera.screenSize.y);
             int histogramSize, tileSize;
-            var histogramBuffer = ComputeOITTiledHistogram(renderGraph, new Vector2Int((int)hdCamera.screenSize.x, (int)hdCamera.screenSize.y), hdCamera.viewCount, output.vbufferOIT.stencilBuffer, out histogramSize, out tileSize);
+
+            var histogramBuffer = ComputeOITTiledHistogram(renderGraph, screenSize, hdCamera.viewCount, output.vbufferOIT.stencilBuffer, out histogramSize, out tileSize);
             var prefixedHistogramBuffer = ComputeOITTiledPrefixSumHistogramBuffer(renderGraph, histogramBuffer, histogramSize);
+
+            ComputeOITAllocateSampleLists(renderGraph, screenSize, output.vbufferOIT.stencilBuffer, prefixedHistogramBuffer, out ComputeBufferHandle sampleListCountBuffer, out ComputeBufferHandle sampleListOffsetBuffer);
 
             output.vbufferOIT.histogramBuffer = histogramBuffer;
             output.vbufferOIT.prefixedHistogramBuffer = prefixedHistogramBuffer;
+            output.vbufferOIT.sampleListCountBuffer = sampleListCountBuffer;
+            output.vbufferOIT.sampleListOffsetBuffer = sampleListOffsetBuffer;
             output.vbufferOIT.BRGBindingData = BRGBindingData;
         }
 
@@ -151,7 +162,7 @@ namespace UnityEngine.Rendering.HighDefinition
             return histogramBuffer;
         }
 
-        class OITHistogramPrefixSum
+        class OITHistogramPrefixSumPassData
         {
             public int inputCount;
             public ComputeBufferHandle inputBuffer;
@@ -162,7 +173,7 @@ namespace UnityEngine.Rendering.HighDefinition
         ComputeBufferHandle ComputeOITTiledPrefixSumHistogramBuffer(RenderGraph renderGraph, ComputeBufferHandle histogramInput, int histogramSize)
         {
             ComputeBufferHandle output;
-            using (var builder = renderGraph.AddRenderPass<OITHistogramPrefixSum>("OITHistogramPrefixSum", out var passData, ProfilingSampler.Get(HDProfileId.OITHistogramPrefixSum)))
+            using (var builder = renderGraph.AddRenderPass<OITHistogramPrefixSumPassData>("OITHistogramPrefixSum", out var passData, ProfilingSampler.Get(HDProfileId.OITHistogramPrefixSum)))
             {
                 builder.AllowRendererListCulling(false);
                 passData.inputCount = histogramSize;
@@ -172,15 +183,62 @@ namespace UnityEngine.Rendering.HighDefinition
                 output = passData.resources.output;
 
                 builder.SetRenderFunc(
-                    (OITHistogramPrefixSum data, RenderGraphContext context) =>
+                    (OITHistogramPrefixSumPassData data, RenderGraphContext context) =>
                     {
-                        GpuPrefixSumSupportResources resources = GpuPrefixSumSupportResources.Load(data.resources);
+                        var resources = GpuPrefixSumSupportResources.Load(data.resources);
                         data.prefixSumSystem.DispatchDirect(context.cmd, new GpuPrefixSumDirectArgs()
                         { exclusive = false, inputCount = data.inputCount, input = data.inputBuffer, supportResources = resources });
                     });
             }
 
             return output;
+        }
+
+        class OITAllocateSampleListsPassData
+        {
+            public ComputeShader cs;
+            public GpuPrefixSum prefixSumSystem;
+            public Vector2Int screenSize;
+            public Texture2D ditherTexture;
+            public TextureHandle stencilBuffer;
+            public ComputeBufferHandle prefixedHistogramBuffer;
+            public ComputeBufferHandle outCountBuffer;
+            public GpuPrefixSumRenderGraphResources prefixResources;
+        }
+
+        void ComputeOITAllocateSampleLists(
+            RenderGraph renderGraph, Vector2Int screenSize, TextureHandle stencilBuffer, ComputeBufferHandle prefixedHistogramBuffer,
+            out ComputeBufferHandle outCountBuffer, out ComputeBufferHandle outOffsetBuffer)
+        {
+            using (var builder = renderGraph.AddRenderPass<OITAllocateSampleListsPassData>("OITAllocateSampleLists", out var passData, ProfilingSampler.Get(HDProfileId.OITAllocateSampleLists)))
+            {
+                passData.cs = defaultResources.shaders.oitTileHistogramCS;
+                passData.prefixSumSystem = m_PrefixSumSystem;
+                passData.screenSize = screenSize;
+                passData.ditherTexture = defaultResources.textures.blueNoise128RTex;
+                passData.stencilBuffer = builder.ReadTexture(stencilBuffer);
+                passData.prefixedHistogramBuffer = builder.ReadComputeBuffer(prefixedHistogramBuffer);
+                passData.outCountBuffer = builder.WriteComputeBuffer(renderGraph.CreateComputeBuffer(new ComputeBufferDesc(screenSize.x * screenSize.y, sizeof(uint), ComputeBufferType.Raw) { name = "OITMaterialCountBuffer" }));
+                passData.prefixResources = GpuPrefixSumRenderGraphResources.Create(screenSize.x * screenSize.y, renderGraph, builder);
+
+                outCountBuffer = passData.outCountBuffer;
+                outOffsetBuffer = passData.prefixResources.output;
+
+                builder.SetRenderFunc(
+                    (OITAllocateSampleListsPassData data, RenderGraphContext context) =>
+                    {
+                        int flatCountKernel = data.cs.FindKernel("MainFlatEnableActiveCounts");
+                        context.cmd.SetComputeTextureParam(data.cs, flatCountKernel, HDShaderIDs._OITDitherTexture, data.ditherTexture);
+                        context.cmd.SetComputeTextureParam(data.cs, flatCountKernel, HDShaderIDs._VisOITCount, (RenderTexture)data.stencilBuffer, 0, RenderTextureSubElement.Stencil);
+                        context.cmd.SetComputeBufferParam(data.cs, flatCountKernel, HDShaderIDs._VisOITPrefixedHistogramBuffer, data.prefixedHistogramBuffer);
+                        context.cmd.SetComputeBufferParam(data.cs, flatCountKernel, HDShaderIDs._OITOutputActiveCounts, data.outCountBuffer);
+                        context.cmd.DispatchCompute(data.cs, flatCountKernel, HDUtils.DivRoundUp(data.screenSize.x, 8), HDUtils.DivRoundUp(data.screenSize.y, 8), 1);
+
+                        var prefixResources = GpuPrefixSumSupportResources.Load(data.prefixResources);
+                        data.prefixSumSystem.DispatchDirect(context.cmd, new GpuPrefixSumDirectArgs()
+                        { exclusive = true, inputCount = data.screenSize.x * data.screenSize.y, input = data.outCountBuffer, supportResources = prefixResources });
+                    });
+            }
         }
     }
 }

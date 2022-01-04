@@ -7,6 +7,8 @@
 TEXTURE2D_X_UINT2(_VisOITCount);
 ByteAddressBuffer _VisOITHistogramBuffer;
 ByteAddressBuffer _VisOITPrefixedHistogramBuffer;
+ByteAddressBuffer _VisOITListsCounts;
+ByteAddressBuffer _VisOITListsOffsets;
 
 float4 DebugDrawOITHistogram(float2 sampleUV, float2 screenSize)
 {
@@ -31,7 +33,7 @@ float4 DebugDrawOITHistogram(float2 sampleUV, float2 screenSize)
 
     float perc = float(accumulation);;
     float maxVal = (float)_VisOITPrefixedHistogramBuffer.Load((DITHER_TILE_TOTAL_PIXELS - 1) << 2);
-    return float4(pow(perc/maxVal, 0.5).xxx, 1.0);
+    return float4(sqrt(perc/maxVal).xxx, 1.0);
 }
 
 #endif
