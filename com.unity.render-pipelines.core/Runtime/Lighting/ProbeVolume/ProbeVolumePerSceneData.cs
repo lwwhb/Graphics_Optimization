@@ -1,35 +1,43 @@
+using System;
 using System.Collections.Generic;
 using UnityEditor;
 
 namespace UnityEngine.Experimental.Rendering
 {
+    /// <summary>
+    /// A component that stores baked probe volume state and data references. Normally hidden from the user.
+    /// </summary>
     [ExecuteAlways]
     [AddComponentMenu("")] // Hide.
-    internal class ProbeVolumePerSceneData : MonoBehaviour, ISerializationCallbackReceiver
+    public class ProbeVolumePerSceneData : MonoBehaviour, ISerializationCallbackReceiver
     {
-        [System.Serializable]
+        [Serializable]
         struct SerializableAssetItem
         {
-            [SerializeField] public ProbeVolumeBakingState state;
-            [SerializeField] public ProbeVolumeAsset asset;
+        	public ProbeVolumeBakingState state;
+            public ProbeVolumeAsset asset;
+            public TextAsset cellDataAsset;
+            public TextAsset cellOptionalDataAsset;
+            public TextAsset cellSupportDataAsset;
         }
 
-        internal Dictionary<ProbeVolumeBakingState, ProbeVolumeAsset> assets = new Dictionary<ProbeVolumeBakingState, ProbeVolumeAsset>();
-
-        [SerializeField] List<SerializableAssetItem> serializedAssets;
+        [SerializeField] List<SerializableAssetItem> serializedAssets = new();
+        
+        internal Dictionary<ProbeVolumeBakingState, ProbeVolumeAsset> assets = new();
 
         ProbeVolumeBakingState m_CurrentState = (ProbeVolumeBakingState)ProbeReferenceVolume.numBakingStates;
 
         /// <summary>
         /// OnAfterDeserialize implementation.
         /// </summary>
-        public void OnAfterDeserialize()
+        void ISerializationCallbackReceiver.OnAfterDeserialize()
         {
-            if (serializedAssets == null) return;
-
-            assets = new Dictionary<ProbeVolumeBakingState, ProbeVolumeAsset>();
+            assets.Clear();
             foreach (var assetItem in serializedAssets)
             {
+                assetItem.asset.cellDataAsset = assetItem.cellDataAsset;
+                assetItem.asset.cellOptionalDataAsset = assetItem.cellOptionalDataAsset;
+                assetItem.asset.cellSupportDataAsset = assetItem.cellSupportDataAsset;
                 assets.Add(assetItem.state, assetItem.asset);
             }
         }
@@ -37,16 +45,17 @@ namespace UnityEngine.Experimental.Rendering
         /// <summary>
         /// OnBeforeSerialize implementation.
         /// </summary>
-        public void OnBeforeSerialize()
+        void ISerializationCallbackReceiver.OnBeforeSerialize()
         {
-            if (assets == null || serializedAssets == null) return;
-
             serializedAssets.Clear();
             foreach (var k in assets.Keys)
             {
                 SerializableAssetItem item;
                 item.state = k;
                 item.asset = assets[k];
+                item.cellDataAsset = item.asset.cellDataAsset;
+                item.cellOptionalDataAsset = item.asset.cellOptionalDataAsset;
+                item.cellSupportDataAsset = item.asset.cellSupportDataAsset;
                 serializedAssets.Add(item);
             }
         }
@@ -67,7 +76,13 @@ namespace UnityEngine.Experimental.Rendering
             foreach (var asset in assets)
             {
                 if (asset.Value != null)
+                {
                     AssetDatabase.DeleteAsset(ProbeVolumeAsset.GetPath(gameObject.scene, asset.Key, false));
+                    asset.Value.GetBlobFileNames(out var cellDataFilename, out var cellOptionalDataFilename, out var cellSupportDataFilename);
+                    AssetDatabase.DeleteAsset(cellDataFilename);
+                    AssetDatabase.DeleteAsset(cellOptionalDataFilename);
+                    AssetDatabase.DeleteAsset(cellSupportDataFilename);
+                }
             }
             AssetDatabase.StopAssetEditing();
             AssetDatabase.Refresh();
@@ -94,15 +109,19 @@ namespace UnityEngine.Experimental.Rendering
         internal void QueueAssetLoading()
         {
             var refVol = ProbeReferenceVolume.instance;
-            if (assets.ContainsKey(m_CurrentState) && assets[m_CurrentState] != null)
+            if (assets.TryGetValue(m_CurrentState, out var asset) && asset != null)
             {
-                refVol.AddPendingAssetLoading(assets[m_CurrentState]);
-#if UNITY_EDITOR
-                if (refVol.sceneData != null)
+                if (asset.ResolveCells())
                 {
-                    refVol.dilationValidtyThreshold = refVol.sceneData.GetBakeSettingsForScene(gameObject.scene).dilationSettings.dilationValidityThreshold;
-                }
+                    refVol.AddPendingAssetLoading(asset);
+
+#if UNITY_EDITOR
+                    if (refVol.sceneData != null)
+                    {
+                        refVol.dilationValidtyThreshold = refVol.sceneData.GetBakeSettingsForScene(gameObject.scene).dilationSettings.dilationValidityThreshold;
+                    }
 #endif
+                }
             }
         }
 
@@ -141,5 +160,13 @@ namespace UnityEngine.Experimental.Rendering
             m_CurrentState = state;
             QueueAssetLoading();
         }
+
+#if UNITY_EDITOR
+        public void StripSupportData()
+        {
+            foreach (var asset in assets.Values)
+                asset.cellSupportDataAsset = null;
+        }
+#endif
     }
 }
