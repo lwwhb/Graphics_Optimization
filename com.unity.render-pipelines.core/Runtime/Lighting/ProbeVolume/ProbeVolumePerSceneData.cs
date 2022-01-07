@@ -35,6 +35,8 @@ namespace UnityEngine.Experimental.Rendering
             assets.Clear();
             foreach (var assetItem in serializedAssets)
             {
+                if (assetItem.asset == null)
+                    continue;
                 assetItem.asset.cellDataAsset = assetItem.cellDataAsset;
                 assetItem.asset.cellOptionalDataAsset = assetItem.cellOptionalDataAsset;
                 assetItem.asset.cellSupportDataAsset = assetItem.cellSupportDataAsset;
@@ -134,6 +136,19 @@ namespace UnityEngine.Experimental.Rendering
         void OnEnable()
         {
             ProbeReferenceVolume.instance.RegisterPerSceneData(this);
+
+            // If a user doesn't save the scene after baking, we still have to look for file assets on disk to avoid lost baked data
+            var scene = gameObject.scene;
+            for (int i = 0; i < ProbeReferenceVolume.numBakingStates; i++)
+            {
+                var state = (ProbeVolumeBakingState)i;
+                if (assets.ContainsKey(state))
+                    continue;
+                var asset = AssetDatabase.LoadAssetAtPath<ProbeVolumeAsset>(ProbeVolumeAsset.GetPath(scene, state, false));
+                if (asset != null)
+                    assets.Add(state, asset);
+            }
+
             if (ProbeReferenceVolume.instance.sceneData != null)
                 SetBakingState(ProbeReferenceVolume.instance.bakingState);
             // otherwise baking state will be initialized in ProbeReferenceVolume.Initialize when sceneData is loaded

@@ -38,11 +38,11 @@ namespace UnityEngine.Experimental.Rendering
 
             public static readonly GUIContent sceneLightingSettings = new GUIContent("Light Settings In Use", EditorGUIUtility.IconContent("LightingSettings Icon").image);
             public static readonly GUIContent sceneNotFound = new GUIContent("Scene Not Found!", Styles.sceneIcon);
-            public static readonly GUIContent debugButton = new GUIContent(Styles.debugIcon);
             public static readonly GUIContent bakingSetsTitle = new GUIContent("Baking Sets");
             public static readonly GUIContent bakingStatesTitle = new GUIContent("Baking States");
             public static readonly GUIContent invalidLabel = new GUIContent("Out of Date");
             public static readonly GUIContent emptyLabel = new GUIContent("Not Baked");
+            public static readonly GUIContent debugButton = new GUIContent(Styles.debugIcon);
 
             public static readonly GUIStyle labelRed = new GUIStyle(EditorStyles.label);
 
@@ -234,6 +234,9 @@ namespace UnityEngine.Experimental.Rendering
 
         internal void UpdateBakingStatesStatuses()
         {
+            if (GetCurrentBakingSet().sceneGUIDs.Count == 0)
+                return;
+
             var scenePath = FindSceneData(GetCurrentBakingSet().sceneGUIDs[0]).path;
             var sceneName = Path.GetFileNameWithoutExtension(scenePath);
 
@@ -542,19 +545,19 @@ namespace UnityEngine.Experimental.Rendering
 
                 // Clamp to make sure minimum we set for dilation distance is min probe distance
                 set.settings.dilationSettings.dilationDistance = Mathf.Max(set.profile.minDistanceBetweenProbes, set.settings.dilationSettings.dilationDistance);
+
+                EditorGUILayout.Space();
+                EditorGUILayout.Space();
+                var stateTitleRect = EditorGUILayout.GetControlRect(true, k_TitleTextHeight);
+                EditorGUI.LabelField(stateTitleRect, Styles.bakingStatesTitle, m_SubtitleStyle);
+                EditorGUILayout.Space();
+
+                DrawBakingStates();
             }
             else
             {
                 EditorGUILayout.HelpBox("You need to assign at least one scene with probe volumes to configure the baking settings", MessageType.Error, true);
             }
-
-            EditorGUILayout.Space();
-            EditorGUILayout.Space();
-            var bakingTitleRect = EditorGUILayout.GetControlRect(true, k_TitleTextHeight);
-            EditorGUI.LabelField(bakingTitleRect, Styles.bakingStatesTitle, m_SubtitleStyle);
-            EditorGUILayout.Space();
-
-            DrawBakingStates();
 
             EditorGUILayout.EndScrollView();
 
@@ -572,8 +575,8 @@ namespace UnityEngine.Experimental.Rendering
             var index = DebugManager.instance.FindPanelIndex(ProbeReferenceVolume.k_DebugPanelName);
             if (index != -1)
                 DebugManager.instance.RequestEditorWindowPanelIndex(index);
-
         }
+
         void DrawBakingStates()
         {
             float height = m_BakingStatesHeader.height + ProbeReferenceVolume.numBakingStates * DebugWindow.Styles.singleRowHeight;
@@ -657,7 +660,7 @@ namespace UnityEngine.Experimental.Rendering
             EditorGUI.BeginDisabledGroup(Lightmapping.isRunning);
             if (GUILayout.Button("Load All Scenes In Set", GUILayout.ExpandWidth(true)))
                 LoadScenesInBakingSet(GetCurrentBakingSet());
-            if (GUILayout.Button("Clear Baked Data"))
+            if (GUILayout.Button("Clear Loaded Scenes Data"))
                 Lightmapping.Clear();
             EditorGUI.EndDisabledGroup();
             if (Lightmapping.isRunning)
@@ -750,7 +753,11 @@ namespace UnityEngine.Experimental.Rendering
         }
 
         void LoadScenesInBakingSet(ProbeVolumeSceneData.BakingSet set)
-            => LoadScenes(GetCurrentBakingSet().sceneGUIDs.Select(sceneGUID => m_ScenesInProject.FirstOrDefault(s => s.guid == sceneGUID).path));
+        {
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                return;
+            LoadScenes(GetCurrentBakingSet().sceneGUIDs.Select(sceneGUID => m_ScenesInProject.FirstOrDefault(s => s.guid == sceneGUID).path));
+        }
 
         void LoadScenes(IEnumerable<string> scenePathes)
         {
