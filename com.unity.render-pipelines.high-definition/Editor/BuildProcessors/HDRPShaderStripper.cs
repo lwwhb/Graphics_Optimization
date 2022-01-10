@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -12,54 +13,46 @@ namespace UnityEditor.Rendering.HighDefinition
     {
         readonly List<BaseShaderPreprocessor> shaderProcessorsList;
 
+        /// <summary>
+        /// Constructs the stripper for HDRP shader variants
+        /// </summary>
         public HDRPShaderStripper()
         {
             shaderProcessorsList = HDShaderUtils.GetBaseShaderPreprocessorList();
         }
 
-        public bool isActive
+        #region isActive
+
+        private Lazy<bool> m_IsActive = new Lazy<bool>(() => CheckIfStripperIsActive());
+
+        /// <summary>
+        /// Returns if the stripper is active
+        /// </summary>
+        public bool isActive => m_IsActive.Value;
+
+        static bool CheckIfStripperIsActive()
         {
-            get
-            {
-                if (HDRenderPipeline.currentAsset == null)
-                    return false;
+            if (HDRenderPipeline.currentAsset == null)
+                return false;
 
-                if (HDRenderPipelineGlobalSettings.Ensure(canCreateNewAsset: false) == null)
-                    return false;
+            if (HDRenderPipelineGlobalSettings.Ensure(canCreateNewAsset: false) == null)
+                return false;
 
-                // TODO: Grab correct configuration/quality asset.
-                var hdPipelineAssets = ShaderBuildPreprocessor.hdrpAssets;
+            // TODO: Grab correct configuration/quality asset.
+            var hdPipelineAssets = ShaderBuildPreprocessor.hdrpAssets;
 
-                // Test if striping is enabled in any of the found HDRP assets.
-                if (hdPipelineAssets.Count == 0 || !hdPipelineAssets.Any(a => a.allowShaderVariantStripping))
-                    return false;
+            // Test if striping is enabled in any of the found HDRP assets.
+            if (hdPipelineAssets.Count == 0 || !hdPipelineAssets.Any(a => a.allowShaderVariantStripping))
+                return false;
 
-                return true;
-            }
+            return true;
         }
 
+        #endregion
 
         #region IShaderStripper
 
-        public bool IsLogEnabled(Shader shader)
-        {
-            var logLevel = HDRenderPipelineGlobalSettings.instance.shaderVariantLogLevel;
-
-            switch (logLevel)
-            {
-                case ShaderVariantLogLevel.Disabled:
-                    return false;
-                case ShaderVariantLogLevel.OnlySRPShaders:
-                    return HDShaderUtils.IsHDRPShader(shader);
-                case ShaderVariantLogLevel.AllShaders:
-                    return true;
-            }
-
-            Debug.LogError("Missing ShaderVariant Log Level");
-            return false;
-        }
-
-        public bool IsVariantStripped([NotNull] Shader shader, ShaderSnippetData snippetData, ShaderCompilerData inputData)
+        public bool CanRemoveShaderVariant([NotNull] Shader shader, ShaderSnippetData snippetData, ShaderCompilerData inputData)
         {
             // Remove the input by default, until we find a HDRP Asset in the list that needs it.
             bool removeInput = true;
@@ -146,7 +139,7 @@ namespace UnityEditor.Rendering.HighDefinition
             return false;
         }
 
-        public bool IsVariantStripped([NotNull] ComputeShader shader, string kernelName, ShaderCompilerData compilerData)
+        public bool CanRemoveShaderVariant([NotNull] ComputeShader shader, string kernelName, ShaderCompilerData compilerData)
         {
             // Discard any compute shader use for raytracing if none of the RP asset required it
             if (!ShaderBuildPreprocessor.playerNeedRaytracing &&

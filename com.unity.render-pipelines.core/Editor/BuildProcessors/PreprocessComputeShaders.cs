@@ -10,57 +10,43 @@ namespace UnityEditor.Rendering
     /// </summary>
     sealed class PreprocessComputeShaders : ShaderPreprocessor<ComputeShader, string>, IPreprocessComputeShaders
     {
+        const string s_TempComputeShaderStripJson = "Temp/compute-shader-strip.json";
+
         /// <summary>
         /// Multiple callback may be implemented. The first one executed is the one where callbackOrder is returning the smallest number.
         /// </summary>
         public int callbackOrder => 0;
 
+        protected override string exportFilename => s_TempComputeShaderStripJson;
+
         public void OnProcessComputeShader(ComputeShader shader, string kernelName, IList<ShaderCompilerData> compilerDataList)
         {
-            int prevVariantsCount = compilerDataList.Count;
-            if (StripShaderVariants(shader, kernelName, compilerDataList, out double totalStripTime))
-            {
-                int currVariantsCount = compilerDataList.Count;
-
-                if (logStrippedVariants)
-                    LogShaderVariants(shader, kernelName, prevVariantsCount, currVariantsCount, totalStripTime);
-
-                if (exportStrippedVariants)
-                    Export(shader, kernelName, prevVariantsCount, currVariantsCount, totalVariantsInputCount, totalVariantsOutputCount);
-            }
-            else
+            if (!StripShaderVariants(shader, kernelName, compilerDataList))
             {
                 Debug.LogError("Error while stripping compute shader");
             }
         }
 
-        void LogShaderVariants(ComputeShader shader, string kernelName, int prevVariantsCount, int currVariantsCount, double stripTimeMs)
+        /// <summary>
+        /// Obtains a JSON valid formatted <see cref="string"/> with the shader name and the valuable info about the variant
+        /// </summary>
+        /// <param name="shader">The <see cref="Shader"/> or the <see cref="ComputeShader"/></param>
+        /// <param name="variant">The variant for the given type of shader</param>
+        /// <returns>A formatted <see cref="string"/></returns>
+        protected override string ToJson(ComputeShader shader, string kernelName)
         {
-            float percentageCurrent = (float)currVariantsCount / prevVariantsCount * 100.0f;
-            float percentageTotal = (float)totalVariantsOutputCount / totalVariantsInputCount * 100.0f;
-
-            string result = string.Format("STRIPPING: {0} (kernel: {1}) -" +
-                " Remaining compute shader variants = {2}/{3} = {4}% - Total = {5}/{6} = {7}% Time={8}ms",
-                shader.name, kernelName, currVariantsCount,
-                prevVariantsCount, percentageCurrent, totalVariantsOutputCount, totalVariantsInputCount,
-                percentageTotal, stripTimeMs);
-            Debug.Log(result);
+            return $"\"shader\": \"{shader?.name}\", \"kernel\": \"{kernelName}\"";
         }
 
-        const string s_TempComputeShaderStripJson = "Temp/compute-shader-strip.json";
-        static void Export(ComputeShader shader, string kernelName, int variantIn, int variantOut, int totalVariantIn, int totalVariantOut)
+        /// <summary>
+        /// Obtains a formatted <see cref="string"/> with the shader name and the valuable info about the variant
+        /// </summary>
+        /// <param name="shader">The <see cref="Shader"/> or the <see cref="ComputeShader"/></param>
+        /// <param name="variant">The variant for the given type of shader</param>
+        /// <returns>A formatted <see cref="string"/></returns>
+        protected override string ToLog(ComputeShader shader, string kernelName)
         {
-            try
-            {
-                System.IO.File.AppendAllText(
-                            s_TempComputeShaderStripJson,
-                            $"{{ \"shader\": \"{shader?.name}\",  \"kernel\": \"{kernelName}\", \"variantIn\": \"{variantIn}\", \"variantOut\": \"{variantOut}\", \"totalVariantIn\": \"{totalVariantIn}\", \"totalVariantOut\": \"{totalVariantOut}\" }}\r\n"
-                        );
-            }
-            catch (Exception e)
-            {
-                Debug.LogException(e);
-            }
+            return $"{shader.name} (kernel: {kernelName})";
         }
     }
 }
