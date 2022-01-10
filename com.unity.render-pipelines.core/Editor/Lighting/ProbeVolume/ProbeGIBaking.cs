@@ -601,6 +601,8 @@ namespace UnityEngine.Experimental.Rendering
                         asset.StoreProfileData(profile);
                         CellCountInDirections(out asset.minCellPosition, out asset.maxCellPosition, profile.cellSizeInMeters);
                         asset.globalBounds = globalBounds;
+
+                        EditorUtility.SetDirty(asset);
                     }
                 }
             }

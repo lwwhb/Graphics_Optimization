@@ -33,6 +33,7 @@ namespace UnityEngine.Experimental.Rendering
         [SerializeField] internal Bounds globalBounds;
 
         [SerializeField] internal ProbeVolumeSHBands bands;
+        [SerializeField] internal ProbeVolumeBakingState state;
 
         [SerializeField] string m_AssetFullPath = "UNINITIALIZED!";
 
@@ -98,12 +99,16 @@ namespace UnityEngine.Experimental.Rendering
             var bricksByteCount = totalCellCounts.bricksCount * UnsafeUtility.SizeOf<ProbeBrickIndex.Brick>();
             var shL0L1DataByteStart = AlignUp16(bricksByteCount);
             var shL0L1DataByteCount = totalCellCounts.probesCount * UnsafeUtility.SizeOf<float>() * kL0L1ScalarCoefficientsCount;
+            if (shL0L1DataByteStart + shL0L1DataByteCount != cellData.Length)
+                return false;
             var bricksData = cellData.GetSubArray(0, bricksByteCount).Reinterpret<ProbeBrickIndex.Brick>(1);
             var shL0L1Data = cellData.GetSubArray(shL0L1DataByteStart, shL0L1DataByteCount).Reinterpret<float>(1);
 
             var cellOptionalData = cellOptionalDataAsset ? cellOptionalDataAsset.GetData<byte>() : default;
             var hasOptionalData = cellOptionalData.IsCreated;
             var shL2DataByteCount = totalCellCounts.probesCount * UnsafeUtility.SizeOf<float>() * kL2ScalarCoefficientsCount;
+            if (hasOptionalData && (shL2DataByteCount + 3 * UnsafeUtility.SizeOf<float>()) != cellOptionalData.Length)
+                return false;
             var shL2Data = hasOptionalData ? cellOptionalData.GetSubArray(0, shL2DataByteCount).Reinterpret<float>(1) : default;
 
             var cellSupportData = cellSupportDataAsset ? cellSupportDataAsset.GetData<byte>() : default;
@@ -113,6 +118,8 @@ namespace UnityEngine.Experimental.Rendering
             var validityByteCount = totalCellCounts.probesCount * UnsafeUtility.SizeOf<float>();
             var offsetByteStart = AlignUp16(positionsByteCount) + AlignUp16(validityByteCount);
             var offsetByteCount = totalCellCounts.offsetsCount * UnsafeUtility.SizeOf<Vector3>();
+            if (hasSupportData && offsetByteStart + offsetByteCount != cellSupportData.Length)
+                return false;
             var positionsData = hasSupportData ? cellSupportData.GetSubArray(0, positionsByteCount).Reinterpret<Vector3>(1) : default;
             var validityData = hasSupportData ? cellSupportData.GetSubArray(validityByteStart, validityByteCount).Reinterpret<float>(1) : default;
             var offsetsData = hasSupportData ? cellSupportData.GetSubArray(offsetByteStart, offsetByteCount).Reinterpret<Vector3>(1) : default;
@@ -165,6 +172,7 @@ namespace UnityEngine.Experimental.Rendering
         {
             ProbeVolumeAsset asset = CreateInstance<ProbeVolumeAsset>();
             asset.m_AssetFullPath = GetPath(scene, state, true);
+            asset.state = state;
 
             UnityEditor.AssetDatabase.CreateAsset(asset, asset.m_AssetFullPath);
             return asset;
@@ -173,9 +181,10 @@ namespace UnityEngine.Experimental.Rendering
         public void GetBlobFileNames(out string cellDataFilename, out string cellOptionalDataFilename, out string cellSupportDataFilename)
         {
             string sourceFilename = GetSerializedFullPath();
-            cellDataFilename = Path.ChangeExtension(sourceFilename, "CellData.bytes");
-            cellOptionalDataFilename = Path.ChangeExtension(sourceFilename, "CellOptionalData.bytes");
-            cellSupportDataFilename = Path.ChangeExtension(sourceFilename, "CellSupportData.bytes");
+            sourceFilename = sourceFilename.Substring(0, sourceFilename.LastIndexOf(state == 0 ? '.' : '-'));
+            cellDataFilename = sourceFilename + ".CellData.bytes";
+            cellOptionalDataFilename = sourceFilename + ".CellOptionalData.bytes";
+            cellSupportDataFilename = sourceFilename + ".CellSupportData.bytes";
         }
 
         internal void StoreProfileData(ProbeReferenceVolumeProfile profile)

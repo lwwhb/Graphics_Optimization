@@ -42,6 +42,7 @@ namespace UnityEngine.Experimental.Rendering
             public static readonly GUIContent bakingStatesTitle = new GUIContent("Baking States");
             public static readonly GUIContent invalidLabel = new GUIContent("Out of Date");
             public static readonly GUIContent emptyLabel = new GUIContent("Not Baked");
+            public static readonly GUIContent notLoadedLabel = new GUIContent("Set is not Loaded");
             public static readonly GUIContent debugButton = new GUIContent(Styles.debugIcon);
 
             public static readonly GUIStyle labelRed = new GUIStyle(EditorStyles.label);
@@ -56,6 +57,7 @@ namespace UnityEngine.Experimental.Rendering
 
         enum BakingStateStatus
         {
+            NotLoaded,
             Valid,
             OutOfDate,
             NotBaked
@@ -110,6 +112,7 @@ namespace UnityEngine.Experimental.Rendering
                 Object.DestroyImmediate(m_ProbeVolumeProfileEditor);
 
             Lightmapping.lightingDataCleared -= UpdateBakingStatesStatuses;
+            EditorSceneManager.sceneOpened -= UpdateBakingStatesStatuses;
         }
 
         void Initialize()
@@ -128,6 +131,7 @@ namespace UnityEngine.Experimental.Rendering
             UpdateBakingStatesStatuses();
 
             Lightmapping.lightingDataCleared += UpdateBakingStatesStatuses;
+            EditorSceneManager.sceneOpened += UpdateBakingStatesStatuses;
 
             m_Initialized = true;
         }
@@ -232,23 +236,49 @@ namespace UnityEngine.Experimental.Rendering
             m_BakingStatesHeader.ResizeToFit();
         }
 
+        bool AllScenesAreLoaded()
+        {
+            var set = GetCurrentBakingSet();
+            var dataList = ProbeReferenceVolume.instance.perSceneDataList;
+            if (dataList.Count < set.sceneGUIDs.Count)
+                return false;
+
+            foreach (var guid in set.sceneGUIDs)
+            {
+                var scenePath = AssetDatabase.GUIDToAssetPath(guid);
+                if (dataList.All(data => data.gameObject.scene.path != scenePath))
+                    return false;
+            }
+
+            return true;
+        }
+
+        internal void UpdateBakingStatesStatuses(Scene s, OpenSceneMode m)
+        {
+            UpdateBakingStatesStatuses();
+        }
+
         internal void UpdateBakingStatesStatuses()
         {
             if (GetCurrentBakingSet().sceneGUIDs.Count == 0)
                 return;
 
-            var scenePath = FindSceneData(GetCurrentBakingSet().sceneGUIDs[0]).path;
-            var sceneName = Path.GetFileNameWithoutExtension(scenePath);
-
-            ProbeVolumeBakingState mostRecentState = ProbeVolumeBakingState.BakingState0;
-            var refTime = File.GetLastWriteTime(ProbeVolumeAsset.GetPath(scenePath, sceneName, 0, false));
-            for (int state = 1; state < sceneData.bakingStates.Length; state++)
+            DateTime? refTime = null;
+            var mostRecentState = (ProbeVolumeBakingState)ProbeReferenceVolume.numBakingStates;
+            foreach (var data in ProbeReferenceVolume.instance.perSceneDataList)
             {
-                var time = File.GetLastWriteTime(ProbeVolumeAsset.GetPath(scenePath, sceneName, (ProbeVolumeBakingState)state, false));
-                if (time > refTime)
+                for (int state = 0; state < ProbeReferenceVolume.numBakingStates; state++)
                 {
-                    refTime = time;
-                    mostRecentState = (ProbeVolumeBakingState)state;
+                    var asset = data.GetAssetForState((ProbeVolumeBakingState)state);
+                    if (asset != null)
+                    {
+                        var time = File.GetLastWriteTime(asset.GetSerializedFullPath());
+                        if (refTime == null || time > refTime)
+                        {
+                            refTime = time;
+                            mostRecentState = (ProbeVolumeBakingState)state;
+                        }
+                    }
                 }
             }
 
@@ -257,27 +287,23 @@ namespace UnityEngine.Experimental.Rendering
 
         internal void UpdateBakingStatesStatuses(ProbeVolumeBakingState mostRecentState)
         {
-            for (int i = 0; i < sceneData.bakingStates.Length; i++)
-                bakingStatesStatuses[i] = BakingStateStatus.Valid;
+            var initialStatus = AllScenesAreLoaded() ? BakingStateStatus.Valid : BakingStateStatus.NotLoaded;
 
-            foreach (var sceneGUID in GetCurrentBakingSet().sceneGUIDs)
+            for (int i = 0; i < ProbeReferenceVolume.numBakingStates; i++)
             {
-                if (!(sceneData.hasProbeVolumes.ContainsKey(sceneGUID) && sceneData.hasProbeVolumes[sceneGUID]))
+                bakingStatesStatuses[i] = initialStatus;
+                if (initialStatus == BakingStateStatus.NotLoaded)
                     continue;
 
-                var scenePath = FindSceneData(sceneGUID).path;
-                var sceneName = Path.GetFileNameWithoutExtension(scenePath);
-                var mostRecentAsset = AssetDatabase.LoadAssetAtPath<ProbeVolumeAsset>(ProbeVolumeAsset.GetPath(scenePath, sceneName, mostRecentState, false));
-
-                for (int i = 0; i < sceneData.bakingStates.Length; i++)
+                foreach (var data in ProbeReferenceVolume.instance.perSceneDataList)
                 {
-                    if (bakingStatesStatuses[i] == BakingStateStatus.NotBaked)
-                        continue;
-
-                    var asset = AssetDatabase.LoadAssetAtPath<ProbeVolumeAsset>(ProbeVolumeAsset.GetPath(scenePath, sceneName, (ProbeVolumeBakingState)i, false));
+                    var asset = data.GetAssetForState((ProbeVolumeBakingState)i);
                     if (asset == null)
+                    {
                         bakingStatesStatuses[i] = BakingStateStatus.NotBaked;
-                    else if (bakingStatesStatuses[i] != BakingStateStatus.OutOfDate && !ProbeVolumeAsset.Compatible(asset, mostRecentAsset))
+                        break;
+                    }
+                    else if (bakingStatesStatuses[i] != BakingStateStatus.OutOfDate && !ProbeVolumeAsset.Compatible(asset, data.GetAssetForState(mostRecentState)))
                         bakingStatesStatuses[i] = BakingStateStatus.OutOfDate;
                 }
             }
@@ -629,17 +655,18 @@ namespace UnityEngine.Experimental.Rendering
                 EditorGUI.LabelField(rowRect, GUIContent.none, EditorGUIUtility.TrTextContent("State " + i));
 
                 // Status
-                if (bakingStatesStatuses[i] != BakingStateStatus.Valid)
+                var status = bakingStatesStatuses[i];
+                if (status != BakingStateStatus.Valid)
                 {
                     rowRect.x += rowRect.width;
                     rowRect.width = m_BakingStatesHeader.state.columns[2].width;
-                    if (bakingStatesStatuses[i] == BakingStateStatus.NotBaked)
+                    if (status == BakingStateStatus.OutOfDate)
+                        EditorGUI.LabelField(rowRect, Styles.invalidLabel, Styles.labelRed);
+                    else
                     {
                         using (new EditorGUI.DisabledScope(true))
-                            EditorGUI.LabelField(rowRect, Styles.emptyLabel);
+                            EditorGUI.LabelField(rowRect, status == BakingStateStatus.NotBaked ? Styles.emptyLabel : Styles.notLoadedLabel);
                     }
-                    else
-                        EditorGUI.LabelField(rowRect, Styles.invalidLabel, Styles.labelRed);
                 }
                 rowRect.y += rowRect.height;
 
