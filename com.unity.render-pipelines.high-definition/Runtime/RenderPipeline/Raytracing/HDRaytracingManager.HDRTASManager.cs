@@ -201,7 +201,7 @@ namespace UnityEngine.Rendering.HighDefinition
         {
             // Grab the ray tracing settings parameter
             RayTracingSettings rtSettings = hdCamera.volumeStack.GetComponent<RayTracingSettings>();
-            switch(rtSettings.cullingMode.value)
+            switch (rtSettings.cullingMode.value)
             {
                 case RTASCullingMode.ExtendedFrustum:
                 {
@@ -216,7 +216,7 @@ namespace UnityEngine.Rendering.HighDefinition
 
                     float far, height, width;
                     far = hdCamera.camera.farClipPlane;
-                    height = Mathf.Tan(Mathf.Deg2Rad * hdCamera.camera.fieldOfView * 0.5f ) * far;
+                    height = Mathf.Tan(Mathf.Deg2Rad * hdCamera.camera.fieldOfView * 0.5f) * far;
                     float horizontalFov = Camera.VerticalToHorizontalFieldOfView(hdCamera.camera.fieldOfView, hdCamera.camera.aspect);
                     width = Mathf.Tan(Mathf.Deg2Rad * horizontalFov * 0.5f) * far;
 
