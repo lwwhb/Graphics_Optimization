@@ -78,4 +78,5 @@ public class ManualRTASManager : MonoBehaviour
 | **Culling Distance** | Specifies the radius of the sphere used to cull objects out of the ray tracing acceleration structure when the culling mode is set to Sphere. |
 
 ![](Images/RayTracingSettings_extended_frustum.gif)
+
 *Extended Frustum Culling Mode*
