@@ -76,3 +76,6 @@ public class ManualRTASManager : MonoBehaviour
 | **Acceleration Structure Build Mode** | Specifies if HDRP handles automatically the building of the ray tracing acceleration structure internally or if it's provided by the user through the camera. When set to Manual, the RTAS build mode expects a ray tracing acceleration structure to be set on the camera. If not, all ray traced effects will be disabled. This option does not affect the scene view. |
 | **Culling Mode** | Specifies which technique HDRP uses to cull geometry out of the ray tracing acceleration structure. When set to Extended frustum, HDRP automatically generates a camera oriented bounding box that extends the camera's frustum. When set to Sphere, a bounding sphere is used for the culling step. |
 | **Culling Distance** | Specifies the radius of the sphere used to cull objects out of the ray tracing acceleration structure when the culling mode is set to Sphere. |
+
+![](Images/RayTracingSettings_extended_frustum.gif)
+*Extended Frustum Culling Mode*
