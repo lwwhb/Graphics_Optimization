@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Linq;
 using System.Reflection;
-using UnityEngine.Rendering;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 #if PROFILE_BUILD
 using UnityEngine.Profiling;
@@ -11,62 +13,55 @@ using UnityEngine.Profiling;
 
 namespace UnityEditor.Rendering
 {
-    abstract class ShaderPreprocessor<TShader, TShaderVariant>
+    internal abstract class ShaderPreprocessor<TShader, TShaderVariant>
     {
-        List<IVariantStripper<TShader, TShaderVariant>> strippers { get; } = new();
-
-        int totalVariantsInputCount { get; set; } = 0;
-        int totalVariantsOutputCount { get; set; } = 0;
-
-        ShaderVariantLogLevel logStrippedVariants { get; }
-        bool exportStrippedVariants { get; }
-
         /// <summary>
         /// Constructor that fetch all the IVariantStripper defined on the assemblies
         /// </summary>
-        public ShaderPreprocessor()
+        protected ShaderPreprocessor()
         {
             // Obtain logging and export information if the Global settings are configured as IShaderVariantSettings
-            if (RenderPipelineManager.currentPipeline != null && RenderPipelineManager.currentPipeline.defaultSettings is IShaderVariantSettings shaderVariantSettings)
+            if (RenderPipelineManager.currentPipeline != null &&
+                RenderPipelineManager.currentPipeline.defaultSettings is IShaderVariantSettings shaderVariantSettings)
             {
                 logStrippedVariants = shaderVariantSettings.shaderVariantLogLevel;
                 exportStrippedVariants = shaderVariantSettings.exportShaderVariants;
             }
 
+            var validStrippers = new List<IVariantStripper<TShader, TShaderVariant>>();
             // Gather all the implementations of IVariantStripper and add them as the strippers
             foreach (var stripper in TypeCache.GetTypesDerivedFrom<IVariantStripper<TShader, TShaderVariant>>())
             {
-                if (stripper.GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null) != null)
+                if (stripper.GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null) !=
+                    null)
                 {
-                    var stripperInstance = Activator.CreateInstance(stripper) as IVariantStripper<TShader, TShaderVariant>;
+                    var stripperInstance =
+                        Activator.CreateInstance(stripper) as IVariantStripper<TShader, TShaderVariant>;
                     if (stripperInstance.isActive)
-                        strippers.Add(stripperInstance);
+                        validStrippers.Add(stripperInstance);
                 }
             }
+
+            // Sort them by priority
+            strippers = validStrippers
+                .OrderByDescending(spp => spp.priority)
+                .ToArray();
         }
 
-        /// <summary>
-        /// Removes a given count from the back of the given list
-        /// </summary>
-        /// <param name="compilerDataList">The list to be removed</param>
-        /// <param name="inputShaderVariantCount">The number of elements to be removed from the back</param>
-        void RemoveBack(IList<ShaderCompilerData> compilerDataList, int inputShaderVariantCount)
-        {
-            if (compilerDataList is List<ShaderCompilerData> inputDataList)
-                inputDataList.RemoveRange(inputShaderVariantCount, inputDataList.Count - inputShaderVariantCount);
-            else
-            {
-                for (int i = compilerDataList.Count - 1; i >= inputShaderVariantCount; --i)
-                    compilerDataList.RemoveAt(i);
-            }
-        }
+        private IVariantStripper<TShader, TShaderVariant>[] strippers { get; }
+
+        private int totalVariantsInputCount { get; set; }
+        private int totalVariantsOutputCount { get; set; }
+
+        private ShaderVariantLogLevel logStrippedVariants { get; }
+        private bool exportStrippedVariants { get; }
 
         /// <summary>
-        /// Strips the given <see cref="TShader"/>
+        /// Strips the given <see cref="TShader" />
         /// </summary>
-        /// <param name="shader">The <see cref="T"/> that might be stripped.</param>
-        /// <param name="shaderVariant">The <see cref="TShaderVariant"/></param>
-        /// <param name="compilerDataList">A list of <see cref="ShaderCompilerData"/></param>
+        /// <param name="shader">The <see cref="T" /> that might be stripped.</param>
+        /// <param name="shaderVariant">The <see cref="TShaderVariant" /></param>
+        /// <param name="compilerDataList">A list of <see cref="ShaderCompilerData" /></param>
         protected unsafe bool StripShaderVariants(
             [NotNull] TShader shader,
             TShaderVariant shaderVariant,
@@ -78,46 +73,44 @@ namespace UnityEditor.Rendering
             if (shader == null || compilerDataList == null)
                 return false;
 
-            int inputVariantCount = compilerDataList.Count;
+            var beforeStrippingInputShaderVariantCount = compilerDataList.Count;
 
             // Early exit from the stripping
-            if (inputVariantCount == 0)
+            if (beforeStrippingInputShaderVariantCount == 0)
                 return true;
 
-            int inputShaderVariantCount = inputVariantCount;
+            var afterStrippingShaderVariantCount = beforeStrippingInputShaderVariantCount;
 
             double stripTimeMs = 0;
             using (TimedScope.FromPtr(&stripTimeMs))
             {
                 // Go through all the shader variants
-                for (int i = 0; i < inputShaderVariantCount;)
+                for (var i = 0; i < afterStrippingShaderVariantCount;)
                 {
-                    // Stripping them by default until we find some stripper that needs it
-                    bool canRemoveVariant = true;
-                    foreach (var stripper in strippers)
-                    {
-                        canRemoveVariant &= stripper.CanRemoveShaderVariant(shader, shaderVariant, compilerDataList[i]);
-                    }
+                    // By default, all variants are stripped if there are not strippers using it
+                    var canRemoveVariant = strippers
+                        .Aggregate(true, (current, stripper) => current & stripper.CanRemoveShaderVariant(shader, shaderVariant, compilerDataList[i]));
 
                     // Remove at swap back
                     if (canRemoveVariant)
-                        compilerDataList[i] = compilerDataList[--inputShaderVariantCount];
+                        compilerDataList[i] = compilerDataList[--afterStrippingShaderVariantCount];
                     else
                         ++i;
                 }
 
-                // Remove the unneed shader variants that will be at the back
-                RemoveBack(compilerDataList, inputShaderVariantCount);
+                // Remove the shader variants that will be at the back
+                compilerDataList.RemoveBack(beforeStrippingInputShaderVariantCount - afterStrippingShaderVariantCount);
             }
 
             // Accumulate diagnostics information
-            int outputVariantCount = compilerDataList.Count;
-            totalVariantsInputCount += inputVariantCount;
+            var outputVariantCount = compilerDataList.Count;
+            totalVariantsInputCount += beforeStrippingInputShaderVariantCount;
             totalVariantsOutputCount += compilerDataList.Count;
 
             // Dump information if need
-            LogShaderVariants(shader, shaderVariant, inputVariantCount, outputVariantCount, stripTimeMs);
-            Export(shader, shaderVariant, inputVariantCount, outputVariantCount, totalVariantsInputCount, totalVariantsOutputCount);
+            LogShaderVariants(shader, shaderVariant, beforeStrippingInputShaderVariantCount, outputVariantCount, stripTimeMs);
+            Export(shader, shaderVariant, beforeStrippingInputShaderVariantCount, outputVariantCount, totalVariantsInputCount,
+                totalVariantsOutputCount);
 
 #if PROFILE_BUILD
             Profiler.EndSample();
@@ -128,20 +121,27 @@ namespace UnityEditor.Rendering
         #region Logging
 
         /// <summary>
-        /// Obtains a formatted <see cref="string"/> with the shader name and the valuable info about the variant
+        ///  Obtains a formatted <see cref="string" /> with the shader name and the valuable info about the variant
         /// </summary>
-        /// <param name="shader">The <see cref="Shader"/> or the <see cref="ComputeShader"/></param>
+        /// <param name="shader">The <see cref="Shader" /> or the <see cref="ComputeShader" /></param>
         /// <param name="variant">The variant for the given type of shader</param>
-        /// <returns>A formatted <see cref="string"/></returns>
+        /// <returns>A formatted <see cref="string" /></returns>
         protected abstract string ToLog(TShader shader, TShaderVariant variant);
 
-        void LogShaderVariants([NotNull] TShader shader, TShaderVariant shaderVariant, int prevVariantsCount, int currVariantsCount, double stripTimeMs)
+        private void LogShaderVariants([NotNull] TShader shader, TShaderVariant shaderVariant, int prevVariantsCount,
+            int currVariantsCount, double stripTimeMs)
         {
-            if (logStrippedVariants == ShaderVariantLogLevel.Disabled)
-                return;
+            // If the log is disabled, or the shader that we are logging is not processed by any stripper, do not log the stripped variants
+            switch (logStrippedVariants)
+            {
+                case ShaderVariantLogLevel.Disabled:
+                case ShaderVariantLogLevel.OnlySRPShaders when !strippers.Any(s => s.IsProcessed(shader)):
+                    return;
+            }
 
-            float percentageCurrent = currVariantsCount / (float)prevVariantsCount * 100f;
-            float percentageTotal = totalVariantsOutputCount / (float)totalVariantsInputCount * 100f;
+            // The log the stripping
+            var percentageCurrent = currVariantsCount / (float)prevVariantsCount * 100f;
+            var percentageTotal = totalVariantsOutputCount / (float)totalVariantsInputCount * 100f;
             Debug.Log(@$"STRIPPING: {ToLog(shader, shaderVariant)} -
                       Remaining shader variants = {currVariantsCount}/{prevVariantsCount} = {percentageCurrent}% -
                       Total = {totalVariantsOutputCount}/{totalVariantsInputCount} = {percentageTotal}% Time={stripTimeMs}ms");
@@ -157,30 +157,32 @@ namespace UnityEditor.Rendering
         protected abstract string exportFilename { get; }
 
         /// <summary>
-        /// Obtains a JSON valid formatted <see cref="string"/> with the shader name and the valuable info about the variant
+        /// Obtains a JSON valid formatted <see cref="string" /> with the shader name and the valuable info about the variant
         /// </summary>
-        /// <param name="shader">The <see cref="Shader"/> or the <see cref="ComputeShader"/></param>
+        /// <param name="shader">The <see cref="Shader" /> or the <see cref="ComputeShader" /></param>
         /// <param name="variant">The variant for the given type of shader</param>
-        /// <returns>A formatted <see cref="string"/></returns>
+        /// <returns>A formatted <see cref="string" /></returns>
         protected abstract string ToJson(TShader shader, TShaderVariant variant);
 
-        void Export([NotNull] TShader shader, TShaderVariant shaderVariant, int variantIn, int variantOut, int totalVariantIn, int totalVariantOut)
+        private void Export([NotNull] TShader shader, TShaderVariant shaderVariant, int variantIn, int variantOut,
+            int totalVariantIn, int totalVariantOut)
         {
             if (!exportStrippedVariants)
                 return;
 
             try
             {
-                System.IO.File.AppendAllText(
-                            exportFilename,
-                            $"{{ {ToJson(shader, shaderVariant)}, \"variantIn\": \"{variantIn}\", \"variantOut\": \"{variantOut}\", \"totalVariantIn\": \"{totalVariantIn}\", \"totalVariantOut\": \"{totalVariantOut}\" }}\r\n"
-                        );
+                File.AppendAllText(
+                    exportFilename,
+                    $"{{ {ToJson(shader, shaderVariant)}, \"variantIn\": \"{variantIn}\", \"variantOut\": \"{variantOut}\", \"totalVariantIn\": \"{totalVariantIn}\", \"totalVariantOut\": \"{totalVariantOut}\" }}\r\n"
+                );
             }
             catch (Exception e)
             {
                 Debug.LogException(e);
             }
         }
+
         #endregion
     }
 }

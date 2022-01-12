@@ -12,13 +12,18 @@ namespace UnityEditor.Rendering
         /// Returns if the stripper is active
         /// </summary>
         bool isActive { get; }
+
+        /// <summary>
+        /// Specifies the priority of the stripper
+        /// </summary>
+        int priority { get; }
     }
 
     /// <summary>
     /// Common interface for stripping shader variants
     /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <typeparam name="U"></typeparam>
+    /// <typeparam name="T">The shader type</typeparam>
+    /// <typeparam name="U">The shader input type</typeparam>
     public interface IVariantStripper<T, U> : IStripper
     {
         /// <summary>
@@ -29,21 +34,22 @@ namespace UnityEditor.Rendering
         /// <param name="compilerData">The <see cref="ShaderCompilerData"/></param>
         /// <returns>If the Shader Variant can be stripped</returns>
         bool CanRemoveShaderVariant([NotNull] T shader, U shaderInput, ShaderCompilerData compilerData);
+
+        /// <summary>
+        /// Returns if the shader is being processed by the stripper
+        /// </summary>
+        /// <param name="shader">The shader to check if the variant can be stripped</param>
+        /// <returns>true, if the shader belongs to the pipeline</returns>
+        bool IsProcessed([NotNull] T shader);
     }
 
     /// <summary>
     /// Helper interface to declare <see cref="Shader"/> variants stripper
     /// </summary>
-    public interface IShaderVariantStripper: IVariantStripper<Shader, ShaderSnippetData>
-    {
-
-    }
+    public interface IShaderVariantStripper: IVariantStripper<Shader, ShaderSnippetData> { }
 
     /// <summary>
     /// Helper interface to declare <see cref="ComputeShader"/> variants stripper
     /// </summary>
-    public interface IComputeVariantStripper : IVariantStripper<ComputeShader, string>
-    {
-
-    }
+    public interface IComputeVariantStripper : IVariantStripper<ComputeShader, string> { }
 }

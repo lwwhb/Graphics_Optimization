@@ -1,5 +1,5 @@
-using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using UnityEditor.Build;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -27,9 +27,8 @@ namespace UnityEditor.Rendering
         /// </summary>
         protected override string exportFilename => s_TempShaderStripJson;
 
-        public void OnProcessShader(Shader shader, ShaderSnippetData snippetData, IList<ShaderCompilerData> compilerDataList)
+        public void OnProcessShader([NotNull] Shader shader, ShaderSnippetData snippetData, IList<ShaderCompilerData> compilerDataList)
         {
-            var shaderRenderPipeline = shader.FindPassTagValue((int)snippetData.pass.PassIndex, s_RenderPipelineTag);
             if (!StripShaderVariants(shader, snippetData, compilerDataList))
             {
                 Debug.LogError("Error while stripping shader");

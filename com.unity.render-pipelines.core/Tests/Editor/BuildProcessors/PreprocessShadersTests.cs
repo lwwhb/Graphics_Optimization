@@ -1,100 +1,126 @@
-using NUnit.Framework;
 using System;
 using System.Collections.Generic;
-using System.Threading;
+using System.Reflection;
+using NUnit.Framework;
+using NUnit.Framework.Constraints;
 using UnityEditor.Rendering;
-using UnityEngine.Assertions;
-using Assert = NUnit.Framework.Assert;
 
 namespace UnityEngine.Rendering.Utils.Tests
 {
-    public class PreprocessShadersTests
-    {/*
-        class PreprocessShaders : UnityEditor.Rendering.PreprocessShaders
+    class PreprocessShadersTests
+    {
+        class StripOneVariant : IShaderVariantStripper
         {
-            public override bool exportLog => false;
+            private int m_InputDataCall;
 
-            public override bool active => true;
-
-            public override bool IsLogVariantsEnabled(Shader shader)
-            {
-                return false;
-            }
-
-            protected override bool CanRemoveInput(Shader shader, ShaderSnippetData snippetData, ShaderCompilerData inputData)
-            {
-                throw new NotImplementedException();
-            }
-        }
-
-        class PreprocessShaders_SkipModule2: PreprocessShaders
-        {
-            private int m_InputDataCall = 0;
-
-            protected override bool CanRemoveInput(Shader shader, UnityEditor.Rendering.ShaderSnippetData snippetData, UnityEditor.Rendering.ShaderCompilerData inputData)
+            public bool CanRemoveShaderVariant(Shader shader, ShaderSnippetData shaderInput,
+                ShaderCompilerData compilerData)
             {
                 m_InputDataCall++;
                 return m_InputDataCall % 2 == 0;
             }
+
+            private static bool m_Active;
+            public bool isActive => m_Active;
         }
 
-        class PreprocessShaders_AllStrippped: PreprocessShaders
+        class StripNothing : IShaderVariantStripper
         {
-            protected override bool CanRemoveInput(Shader shader, UnityEditor.Rendering.ShaderSnippetData snippetData, UnityEditor.Rendering.ShaderCompilerData inputData)
-            {
-                return true;
-            }
+            public bool CanRemoveShaderVariant(Shader shader, ShaderSnippetData shaderInput,
+                ShaderCompilerData compilerData) => false;
+
+            private static bool m_Active;
+            public bool isActive => m_Active;
         }
 
-        class PreprocessShaders_NothingStrippped : PreprocessShaders
+        class StripAll : IShaderVariantStripper
         {
-            protected override bool CanRemoveInput(Shader shader, UnityEditor.Rendering.ShaderSnippetData snippetData, UnityEditor.Rendering.ShaderCompilerData inputData)
-            {
-                return false;
-            }
+            public bool CanRemoveShaderVariant(Shader shader, ShaderSnippetData shaderInput,
+                ShaderCompilerData compilerData) => true;
+
+            private static bool m_Active;
+            public bool isActive => m_Active;
         }
 
         static TestCaseData[] s_TestCaseDatas =
         {
-            new TestCaseData(typeof(PreprocessShaders), string.Empty, default, null)
-                .Returns(0)
-                .SetName("Null"),
-            new TestCaseData(typeof(PreprocessShaders_SkipModule2), string.Empty, default, new List<UnityEditor.Rendering.ShaderCompilerData>())
+            new TestCaseData(null)
                 .Returns(0)
                 .SetName("Empty"),
-            new TestCaseData(typeof(PreprocessShaders_SkipModule2), "Hidden/Internal-Colored", default, new List<UnityEditor.Rendering.ShaderCompilerData> { default, default })
+            new TestCaseData(typeof(StripOneVariant))
                 .Returns(1)
-                .SetName("OneVariantStripped"),
-            new TestCaseData(typeof(PreprocessShaders_AllStrippped), "Hidden/Internal-Colored", default, new List<UnityEditor.Rendering.ShaderCompilerData> { default, default })
-                .Returns(0)
-                .SetName("AllStrippped"),
-            new TestCaseData(typeof(PreprocessShaders_NothingStrippped), "Hidden/Internal-Colored", default, new List<UnityEditor.Rendering.ShaderCompilerData> { default, default })
+                .SetName(nameof(StripOneVariant)),
+            new TestCaseData(typeof(StripNothing))
                 .Returns(2)
-                .SetName("NothingStrippped")
+                .SetName(nameof(StripNothing)),
+            new TestCaseData(typeof(StripAll))
+                .Returns(0)
+                .SetName(nameof(StripAll)),
         };
 
-        [Test, TestCaseSource(nameof(s_TestCaseDatas))]
-        public int Test_PreprocessShaders(Type preprocessType, string shaderName,
-            UnityEditor.Rendering.ShaderSnippetData shaderSnippetData,
-            IList<UnityEditor.Rendering.ShaderCompilerData> compilerDataList)
+        protected UnityEditor.Build.IPreprocessShaders preprocessShaders
         {
-            var preprocessShaders = Activator.CreateInstance(preprocessType) as PreprocessShaders;
-            Assert.IsTrue(preprocessShaders.active);
-
-            bool exceptionRaised = false;
-
-            try
+            get
             {
-                preprocessShaders.OnProcessShader(Shader.Find(shaderName), shaderSnippetData, compilerDataList);
-            }
-            catch
-            {
-                exceptionRaised = true;
-            }
+                Type type = null;
 
-            Assert.IsFalse(exceptionRaised);
-            return compilerDataList?.Count ?? 0;
+                foreach (var t in UnityEditor.TypeCache.GetTypesDerivedFrom<UnityEditor.Build.IPreprocessShaders>())
+                {
+                    if (t.FullName.Equals("UnityEditor.Rendering.PreprocessShaders"))
+                    {
+                        type = t;
+                        break;
+                    }
+                }
+
+                Assert.IsNotNull(type);
+
+                return  Activator.CreateInstance(type) as UnityEditor.Build.IPreprocessShaders;
+            }
         }
-        */
+
+        protected class BuiltInPipeline : IDisposable
+        {
+            private RenderPipelineAsset m_PreviousPipeline;
+
+            public BuiltInPipeline()
+            {
+                m_PreviousPipeline = GraphicsSettings.defaultRenderPipeline;
+                GraphicsSettings.defaultRenderPipeline = null;
+            }
+
+            protected virtual void Dispose(bool disposing)
+            {
+                if (disposing)
+                {
+                    GraphicsSettings.defaultRenderPipeline = m_PreviousPipeline;
+                }
+            }
+
+            public void Dispose()
+            {
+                Dispose(true);
+                GC.SuppressFinalize(this);
+            }
+        }
+
+        [Test, TestCaseSource(nameof(s_TestCaseDatas))]
+        public int Test_PreprocessShaders(Type preprocessType)
+        {
+            FieldInfo field = preprocessType?.GetField("m_Active", BindingFlags.NonPublic | BindingFlags.Static);
+            field?.SetValue(null, true);
+
+            var variants = new List<UnityEditor.Rendering.ShaderCompilerData> {default, default};
+
+            using (new BuiltInPipeline())
+            {
+                Shader shader = Shader.Find("Hidden/Internal-Colored");
+                preprocessShaders.OnProcessShader(shader, default, variants);
+            }
+
+            field?.SetValue(null, false);
+
+            return variants.Count;
+        }
     }
 }

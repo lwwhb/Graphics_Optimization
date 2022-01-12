@@ -11,24 +11,29 @@ namespace UnityEditor.Rendering.HighDefinition
 {
     internal class HDRPShaderStripper : IShaderVariantStripper, IComputeVariantStripper
     {
-        readonly List<BaseShaderPreprocessor> shaderProcessorsList;
+        readonly List<BaseShaderPreprocessor> m_ShaderProcessorsList;
 
         /// <summary>
         /// Constructs the stripper for HDRP shader variants
         /// </summary>
         public HDRPShaderStripper()
         {
-            shaderProcessorsList = HDShaderUtils.GetBaseShaderPreprocessorList();
+            m_ShaderProcessorsList = HDShaderUtils.GetBaseShaderPreprocessorList();
         }
 
         #region isActive
 
-        private Lazy<bool> m_IsActive = new Lazy<bool>(() => CheckIfStripperIsActive());
+        private readonly Lazy<bool> m_IsActive = new Lazy<bool>(CheckIfStripperIsActive);
 
         /// <summary>
         /// Returns if the stripper is active
         /// </summary>
         public bool isActive => m_IsActive.Value;
+
+        /// <summary>
+        /// Specifies the priority of the stripper
+        /// </summary>
+        public int priority => 100;
 
         static bool CheckIfStripperIsActive()
         {
@@ -42,10 +47,7 @@ namespace UnityEditor.Rendering.HighDefinition
             var hdPipelineAssets = ShaderBuildPreprocessor.hdrpAssets;
 
             // Test if striping is enabled in any of the found HDRP assets.
-            if (hdPipelineAssets.Count == 0 || !hdPipelineAssets.Any(a => a.allowShaderVariantStripping))
-                return false;
-
-            return true;
+            return hdPipelineAssets.Count != 0 && hdPipelineAssets.Any(a => a.allowShaderVariantStripping);
         }
 
         #endregion
@@ -59,18 +61,10 @@ namespace UnityEditor.Rendering.HighDefinition
 
             foreach (var hdAsset in ShaderBuildPreprocessor.hdrpAssets)
             {
-                var strippedByPreprocessor = false;
-
                 // Call list of strippers
                 // Note that all strippers cumulate each other, so be aware of any conflict here
-                foreach (BaseShaderPreprocessor shaderPreprocessor in shaderProcessorsList)
-                {
-                    if (shaderPreprocessor.ShadersStripper(hdAsset, shader, snippetData, inputData))
-                    {
-                        strippedByPreprocessor = true;
-                        break;
-                    }
-                }
+                var strippedByPreprocessor = m_ShaderProcessorsList
+                    .Any(shaderPreprocessor => shaderPreprocessor.ShadersStripper(hdAsset, shader, snippetData, inputData));
 
                 if (!strippedByPreprocessor)
                 {
@@ -81,6 +75,13 @@ namespace UnityEditor.Rendering.HighDefinition
 
             return removeInput;
         }
+
+        /// <summary>
+        /// Returns if the shader is being processed by the stripper
+        /// </summary>
+        /// <param name="shader">The shader to check if the variant can be stripped</param>
+        /// <returns>true, if the shader belongs to the pipeline</returns>
+        public bool IsProcessed(Shader shader) => HDShaderUtils.IsHDRPShader(shader);
 
         #endregion
 
@@ -160,7 +161,12 @@ namespace UnityEditor.Rendering.HighDefinition
             return removeInput;
         }
 
-        public bool IsLogEnabled(ComputeShader _) => HDRenderPipelineGlobalSettings.instance.shaderVariantLogLevel != ShaderVariantLogLevel.Disabled;
+        /// <summary>
+        /// Returns if the shader is being processed by the stripper
+        /// </summary>
+        /// <param name="shader">The shader to check if the variant can be stripped</param>
+        /// <returns>true, if the shader belongs to the pipeline</returns>
+        public bool IsProcessed(ComputeShader shader) => true;
         #endregion
     }
 }
