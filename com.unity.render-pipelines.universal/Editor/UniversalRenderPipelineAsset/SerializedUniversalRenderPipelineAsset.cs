@@ -46,6 +46,7 @@ namespace UnityEditor.Rendering.Universal
         public SerializedProperty shadowDepthBiasProp { get; }
         public SerializedProperty shadowNormalBiasProp { get; }
         public SerializedProperty softShadowsSupportedProp { get; }
+        public SerializedProperty shadowOptimization { get; } //---Shadow Optimize
         public SerializedProperty conservativeEnclosingSphereProp { get; }
 
         public SerializedProperty srpBatcher { get; }
@@ -112,6 +113,7 @@ namespace UnityEditor.Rendering.Universal
             shadowDepthBiasProp = serializedObject.FindProperty("m_ShadowDepthBias");
             shadowNormalBiasProp = serializedObject.FindProperty("m_ShadowNormalBias");
             softShadowsSupportedProp = serializedObject.FindProperty("m_SoftShadowsSupported");
+            shadowOptimization = serializedObject.FindProperty("m_ShadowOptimization"); //---Shadow Optimize
             conservativeEnclosingSphereProp = serializedObject.FindProperty("m_ConservativeEnclosingSphere");
 
             srpBatcher = serializedObject.FindProperty("m_UseSRPBatcher");

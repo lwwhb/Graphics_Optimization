@@ -198,6 +198,7 @@ namespace UnityEngine.Rendering.Universal
         [SerializeField] float m_ShadowDepthBias = 1.0f;
         [SerializeField] float m_ShadowNormalBias = 1.0f;
         [SerializeField] bool m_SoftShadowsSupported = false;
+        [SerializeField] bool m_ShadowOptimization = true; //---Shadow Optimize
         [SerializeField] bool m_ConservativeEnclosingSphere = false;
         [SerializeField] int m_NumIterationsEnclosingSphere = 64;
 
@@ -845,6 +846,17 @@ namespace UnityEngine.Rendering.Universal
             get { return m_SoftShadowsSupported; }
             internal set { m_SoftShadowsSupported = value; }
         }
+
+        //---Shadow Optimize
+        /// <summary>
+        /// Supports Soft Shadows controls the Soft Shadows.
+        /// </summary>
+        public bool shadowOptimization
+        {
+            get { return m_ShadowOptimization; }
+            internal set { m_ShadowOptimization = value; }
+        }
+        ///
 
         public bool supportsDynamicBatching
         {

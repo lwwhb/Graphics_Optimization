@@ -1060,6 +1060,7 @@ namespace UnityEngine.Rendering.Universal
             // This will be setup in AdditionalLightsShadowCasterPass.
             shadowData.isKeywordAdditionalLightShadowsEnabled = false;
             shadowData.isKeywordSoftShadowsEnabled = false;
+            shadowData.isShadowOptimized = settings.shadowOptimization; //---Shadow Optimize
         }
 
         static void InitializePostProcessingData(UniversalRenderPipelineAsset settings, out PostProcessingData postProcessingData)

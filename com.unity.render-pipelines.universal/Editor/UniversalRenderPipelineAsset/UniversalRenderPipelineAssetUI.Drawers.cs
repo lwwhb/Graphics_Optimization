@@ -294,7 +294,7 @@ namespace UnityEditor.Rendering.Universal
             serialized.shadowDepthBiasProp.floatValue = EditorGUILayout.Slider(Styles.shadowDepthBias, serialized.shadowDepthBiasProp.floatValue, 0.0f, UniversalRenderPipeline.maxShadowBias);
             serialized.shadowNormalBiasProp.floatValue = EditorGUILayout.Slider(Styles.shadowNormalBias, serialized.shadowNormalBiasProp.floatValue, 0.0f, UniversalRenderPipeline.maxShadowBias);
             EditorGUILayout.PropertyField(serialized.softShadowsSupportedProp, Styles.supportsSoftShadows);
-
+            EditorGUILayout.PropertyField(serialized.shadowOptimization, Styles.shadowsOptimization); //---Shadow Optimize
             EditorGUI.indentLevel--;
         }
 
@@ -302,6 +302,7 @@ namespace UnityEditor.Rendering.Universal
         {
             EditorGUILayout.PropertyField(serialized.conservativeEnclosingSphereProp, Styles.conservativeEnclosingSphere);
         }
+    
 
         static void DrawCascadeSliders(SerializedUniversalRenderPipelineAsset serialized, int splitCount, bool useMetric, float baseMetric)
         {
